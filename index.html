@@ -196,14 +196,8 @@ tbody tr:last-child td{border-bottom:none}
 .school-banner-text strong{font-size:1rem;display:block}
 .school-banner-text span{font-size:.76rem;color:var(--gold-light);letter-spacing:.03em}
 
-/* ── TOPPERS TABLE ── */
-.toppers-table td:first-child{font-size:1.3rem;text-align:center}
-.medal-gold{color:#D4A017;font-weight:700}
-.medal-silver{color:#808080;font-weight:700}
-.medal-bronze{color:#A05000;font-weight:700}
-
-/* ── SINGLE EXAM BADGE ── */
-.single-mode-badge{background:linear-gradient(135deg,var(--gold),var(--gold-light));color:var(--navy);border-radius:8px;padding:4px 14px;font-size:.78rem;font-weight:700;display:inline-flex;align-items:center;gap:5px}
+/* ── TOPPERS ── */
+.toppers-medal{font-size:1.4rem;text-align:center}
 
 /* ── RESPONSIVE ── */
 @media(max-width:768px){
@@ -277,13 +271,11 @@ tbody tr:last-child td{border-bottom:none}
   <div class="card">
     <div class="card-title">📤 Upload Exam Marksheet</div>
     <div class="card-sub" id="upload-mode-desc">Upload your .xlsx file with all four exam sheets (FIRST UNIT TEST · FIRST TERM · SECOND UNIT TEST · ANNUAL EXAM).</div>
-    <!-- Mode switch -->
     <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
       <span style="font-size:.82rem;font-weight:600;color:var(--navy)">Mode:</span>
       <button class="btn btn-primary" id="btn-mode-full" onclick="setUploadMode('full')">📚 Full Year (4 Exams)</button>
       <button class="btn btn-outline" id="btn-mode-single" onclick="setUploadMode('single')">📋 Single Exam Sheet</button>
     </div>
-    <!-- Single exam options (hidden by default) -->
     <div id="single-exam-options" style="display:none;margin-bottom:14px">
       <div class="two-col">
         <div>
@@ -721,12 +713,6 @@ function handleFile(file){
       document.getElementById('file-badge-container').innerHTML=
         `<div class="file-badge">✅ ${file.name} — ${wb.SheetNames.length} sheets: ${wb.SheetNames.join(', ')}</div>`;
       document.getElementById('btn-step1-next').disabled=false;
-      const modeBtn=document.getElementById('btn-step1-next');
-      if(state.uploadMode==='single'){
-        modeBtn.textContent='Next: Select Faculty →';
-      } else {
-        modeBtn.textContent='Next: Select Faculty →';
-      }
       toast('Excel loaded successfully!','success');
     }catch(err){toast('Failed to read Excel: '+err.message,'error');}
   };
@@ -828,6 +814,18 @@ function parseAllSheets(){
 }
 function parseAndGoStep3(){
   if(!state.faculty){toast('Please select a faculty first','error');return;}
+  if(state.uploadMode==='single'){
+    if(!state.singleExamType){toast('Please select exam type in Step 1','error');return;}
+    showLoading('Parsing single exam sheet…');
+    setTimeout(()=>{
+      try{
+        parseSingleSheet();
+        renderSingleSheetStatus();renderPreview();renderInternalMarksSingle();
+        hideLoading();goToStep(3);toast(`Parsed ${state.studentRolls.length} students`,'success');
+      }catch(err){hideLoading();toast('Parse error: '+err.message,'error');console.error(err);}
+    },50);
+    return;
+  }
   showLoading('Parsing Excel sheets…');
   setTimeout(()=>{
     try{
@@ -979,6 +977,7 @@ function handleInternalFile(file){
 // GENERATE REPORT
 // ═══════════════════════════════════════════════════════════════════════
 function generateReport(){
+  if(state.uploadMode==='single'){generateSingleReport();return;}
   showLoading('Calculating results and ranks…');
   setTimeout(()=>{
     try{
@@ -1012,53 +1011,6 @@ function generateReport(){
 // ═══════════════════════════════════════════════════════════════════════
 // RENDER REPORT
 // ═══════════════════════════════════════════════════════════════════════
-function buildToppersHtml(){
-  const cfg=state.cfg,mc=state.masterCols;
-  const passed=state.studentResults.filter(r=>r.pass);
-  if(!passed.length)return'';
-  // Overall top 3
-  const sorted=[...passed].sort((a,b)=>b.gt-a.gt||a.roll-b.roll);
-  const medals=['🥇','🥈','🥉'];
-  const topRows=sorted.slice(0,3).map((sr,i)=>`
-    <tr>
-      <td style="text-align:center;font-size:1.4rem">${medals[i]||''}</td>
-      <td><strong>${sr.roll}</strong></td>
-      <td>${sr.name}</td>
-      <td><strong>${sr.gt}</strong> / 600</td>
-      <td><strong>${sr.pc}%</strong></td>
-      <td><span class="rank-chip">🏅 Rank ${sr.rank}</span></td>
-    </tr>`).join('');
-  // Subject-wise toppers
-  const subRows=mc.map(abbr=>{
-    const[sname]=cfg.subjects[abbr]||[abbr];
-    const candidates=state.studentResults.filter(r=>r.subj6.includes(abbr));
-    if(!candidates.length)return'';
-    const topScore=Math.max(...candidates.map(r=>r.a100[abbr]));
-    const toppers=candidates.filter(r=>r.a100[abbr]===topScore);
-    const names=toppers.map(r=>`${r.name} (${r.roll})`).join(', ');
-    return`<tr><td>${sname}</td><td>${names}</td><td><strong>${topScore}</strong> / 100</td></tr>`;
-  }).join('');
-  return`
-    <div class="card" style="border:2px solid var(--gold)">
-      <div class="card-title">🏆 Toppers Summary — Final Consolidated Result</div>
-      <div class="card-sub">Based on average marks out of 100 (all exams + internal), after ranking.</div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3 Students</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Medal</th><th>Roll</th><th>Student Name</th><th>Total Marks</th><th>Percentage</th><th>Rank</th></tr></thead>
-          <tbody>${topRows}</tbody>
-        </table></div>
-      </div>
-      <div>
-        <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">📚 Subject-Wise Toppers</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Subject</th><th>Topper(s)</th><th>Marks (Avg /100)</th></tr></thead>
-          <tbody>${subRows}</tbody>
-        </table></div>
-      </div>
-    </div>`;
-}
-
 function renderReport(){
   const passed=state.studentResults.filter(r=>r.pass).length;
   const failed=state.studentResults.length-passed;
@@ -1085,7 +1037,6 @@ function renderReport(){
   }).join('');
   const examOpts=EXAM_CONFIGS.filter(ec=>state.sheetStatus[ec.label]==='found'||state.sheetStatus[ec.label]==='blank')
     .map(ec=>`<label class="exam-check checked" id="ec-${ec.label.replace(/[\s\/()]/g,'_')}"><input type="checkbox" checked value="${ec.label}" onchange="this.closest('label').classList.toggle('checked',this.checked)">${ec.label}</label>`).join('');
-  const toppersHtml=buildToppersHtml();
   document.getElementById('report-content').innerHTML=`
     ${bannerHtml}
     <div class="stats-bar">
@@ -1121,7 +1072,7 @@ function renderReport(){
         <button class="btn btn-primary btn-lg" onclick="generatePDFs()">📄 Generate &amp; Download PDFs</button>
       </div>
     </div>
-    ${toppersHtml}`;
+    ${buildToppersHtml()}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1136,6 +1087,7 @@ function startOver(){
   state.reportGenerated=false;state.studentResults=[];
   state.schoolName='';state.className='';state.sectionName='';state.academicYear='';
   state.letterheadDataUrl=null;state.letterheadFormat='PNG';
+  state.uploadMode='full';state.singleExamType='';
   // Reset UI inputs
   document.getElementById('file-badge-container').innerHTML='';
   document.getElementById('btn-step1-next').disabled=true;
@@ -1275,158 +1227,6 @@ function generatePDFs(){
       hideLoading();toast(checked.length+' PDF(s) downloaded successfully!','success');
     }catch(err){hideLoading();toast('PDF error: '+err.message,'error');console.error(err);}
   },80);
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// CONSOLIDATED PDF — All Exams + Internal + Final Result per student
-// ═══════════════════════════════════════════════════════════════════════
-function generateConsolidatedPDF(){
-  const{jsPDF}=window.jspdf;
-  const cfg=state.cfg,mc=state.masterCols;
-  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
-  const PW=210,PH=297,MARGIN=10;
-  const CW=PW-2*MARGIN;
-
-  for(let si=0;si<state.studentResults.length;si++){
-    if(si>0)doc.addPage();
-    const sr=state.studentResults[si];
-    const s=state.allStudents[sr.roll];
-    let cy=MARGIN;
-
-    // ── Header ──────────────────────────────────────────────────────────
-    if(state.letterheadDataUrl){
-      try{doc.addImage(state.letterheadDataUrl,state.letterheadFormat,MARGIN,cy,CW,22,'','FAST');cy+=22;}
-      catch(e){cy+=0;}
-      doc.setFillColor(13,27,56);doc.rect(MARGIN,cy,CW,7,'F');
-      const infoParts=[
-        state.className?'Class '+state.className+(state.sectionName?' – Sec. '+state.sectionName:''):'',
-        state.faculty?state.faculty+' Faculty':'',state.academicYear||''
-      ].filter(Boolean).join('   |   ');
-      doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(245,193,88);
-      doc.text(infoParts,PW/2,cy+4.8,{align:'center'});cy+=7;
-      doc.setFillColor(37,61,120);doc.rect(MARGIN,cy,CW,9,'F');
-      doc.setTextColor(255,255,255);doc.setFontSize(10);doc.setFont('helvetica','bold');
-      doc.text('CONSOLIDATED MARKSHEET — ALL EXAMS',PW/2,cy+6,{align:'center'});cy+=9;
-    } else {
-      doc.setFillColor(13,27,56);doc.rect(MARGIN,cy,CW,28,'F');
-      if(state.schoolName){
-        doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
-        doc.text(state.schoolName,PW/2,cy+9,{align:'center'});
-      }
-      const infoParts=[
-        state.className?'Class '+state.className+(state.sectionName?' – '+state.sectionName:''):'',
-        state.faculty?state.faculty+' Faculty':'',state.academicYear||''
-      ].filter(Boolean).join('  ·  ');
-      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
-      if(infoParts)doc.text(infoParts,PW/2,cy+15.5,{align:'center'});
-      doc.setFontSize(10.5);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
-      doc.text('CONSOLIDATED MARKSHEET — ALL EXAMS',PW/2,cy+22,{align:'center'});
-      cy+=28;
-    }
-    cy+=3;
-
-    // ── Student info row ─────────────────────────────────────────────────
-    doc.setFillColor(243,247,254);doc.rect(MARGIN,cy,CW,10,'F');
-    doc.setDrawColor(200);doc.setLineWidth(0.3);doc.rect(MARGIN,cy,CW,10);
-    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
-    doc.text('Roll No.: ',MARGIN+3,cy+6.5);
-    doc.setFont('helvetica','normal');doc.text(String(sr.roll),MARGIN+22,cy+6.5);
-    doc.setFont('helvetica','bold');doc.text('Name: ',PW/2-30,cy+6.5);
-    doc.setFont('helvetica','normal');
-    const nameStr=sr.name.length>30?sr.name.substring(0,30)+'…':sr.name;
-    doc.text(nameStr,PW/2-14,cy+6.5);
-    cy+=12;
-
-    // ── Marks table ──────────────────────────────────────────────────────
-    const colW=[48,22,22,22,22,22,22];// Subject,UT1,FT,UT2,ANN,INT,Avg
-    const colX=[MARGIN];
-    for(let i=0;i<colW.length-1;i++)colX.push(colX[colX.length-1]+colW[i]);
-
-    // Table header
-    const HDR_H=8;
-    doc.setFillColor(13,27,56);doc.rect(MARGIN,cy,CW,HDR_H,'F');
-    doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
-    const hdrs=['Subject','UT1 /25','1st Term /50','UT2 /25','Annual /70-80','Internal','Avg /100'];
-    hdrs.forEach((h,i)=>doc.text(h,colX[i]+colW[i]/2,cy+5.5,{align:'center'}));
-    cy+=HDR_H;
-
-    // Data rows
-    const ROW_H=8;
-    mc.forEach((abbr,ri)=>{
-      if(!sr.subj6.includes(abbr))return;
-      const[sname]=cfg.subjects[abbr]||[abbr];
-      const ut1=cleanMarks(s.exams['FIRST UNIT TEST (25)']?.[abbr]);
-      const ft=cleanMarks(s.exams['FIRST TERM EXAM (50)']?.[abbr]);
-      const ut2=cleanMarks(s.exams['SECOND UNIT TEST (25)']?.[abbr]);
-      const ann=cleanMarks(s.exams['ANNUAL EXAM (70/80)']?.[abbr]);
-      const intM=parseFloat(state.internalMarks[sr.roll]?.[abbr])||0;
-      const avg=sr.a100[abbr];
-      const rowBg=ri%2===0?[255,255,255]:[243,247,254];
-      doc.setFillColor(...rowBg);doc.rect(MARGIN,cy,CW,ROW_H,'F');
-      doc.setFontSize(7.5);doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');
-      doc.text(sname,colX[0]+2,cy+5.2);
-      doc.text(String(ut1),colX[1]+colW[1]/2,cy+5.2,{align:'center'});
-      doc.text(String(ft),colX[2]+colW[2]/2,cy+5.2,{align:'center'});
-      doc.text(String(ut2),colX[3]+colW[3]/2,cy+5.2,{align:'center'});
-      doc.text(String(ann),colX[4]+colW[4]/2,cy+5.2,{align:'center'});
-      doc.text(String(intM),colX[5]+colW[5]/2,cy+5.2,{align:'center'});
-      if(avg<35){doc.setTextColor(192,57,43);doc.setFont('helvetica','bold');}
-      doc.text(String(avg),colX[6]+colW[6]/2,cy+5.2,{align:'center'});
-      doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');
-      cy+=ROW_H;
-    });
-
-    // Totals row
-    const t200Tot=Object.values(sr.t200).reduce((a,v)=>a+(parseFloat(v)||0),0);
-    doc.setFillColor(210,228,248);doc.rect(MARGIN,cy,CW,ROW_H,'F');
-    doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
-    doc.text('TOTAL / AVERAGE',colX[0]+2,cy+5.2);
-    doc.text(String(Math.round(t200Tot)),colX[5]+colW[5]/2,cy+5.2,{align:'center'});
-    doc.text(String(sr.gt)+' / 600',colX[6]+colW[6]/2,cy+5.2,{align:'center'});
-    cy+=ROW_H;
-
-    // Table border
-    doc.setDrawColor(160);doc.setLineWidth(0.3);
-    doc.rect(MARGIN,cy-mc.filter(a=>sr.subj6.includes(a)).length*ROW_H-HDR_H-ROW_H,CW,mc.filter(a=>sr.subj6.includes(a)).length*ROW_H+HDR_H+ROW_H);
-    colX.slice(1).forEach(x=>doc.line(x,cy-mc.filter(a=>sr.subj6.includes(a)).length*ROW_H-HDR_H-ROW_H,x,cy));
-    cy+=4;
-
-    // ── Result strip ──────────────────────────────────────────────────────
-    const rf_w=CW*0.45,rf_x=MARGIN+(CW-rf_w)/2;
-    if(sr.pass){
-      doc.setFillColor(214,244,223);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'F');
-      doc.setDrawColor(26,122,71);doc.setLineWidth(0.7);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'S');
-      doc.setTextColor(26,122,71);doc.setFontSize(10);doc.setFont('helvetica','bold');
-      doc.text('✓  PASS',rf_x+rf_w/2,cy+6.8,{align:'center'});
-    } else {
-      doc.setFillColor(253,228,228);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'F');
-      doc.setDrawColor(192,57,43);doc.setLineWidth(0.7);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'S');
-      doc.setTextColor(192,57,43);doc.setFontSize(10);doc.setFont('helvetica','bold');
-      doc.text('✗  FAIL',rf_x+rf_w/2,cy+6.8,{align:'center'});
-    }
-    cy+=13;
-
-    // ── Summary row ──────────────────────────────────────────────────────
-    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
-    doc.text(`Grand Total: ${sr.gt} / 600`,MARGIN+5,cy+5);
-    doc.text(`Percentage: ${sr.pc}%`,MARGIN+65,cy+5);
-    doc.text(sr.rank?`Rank: ${sr.rank}`:'',MARGIN+130,cy+5);
-    cy+=10;
-
-    // ── Signature block at bottom ────────────────────────────────────────
-    const sigY=PH-MARGIN-20;
-    doc.setDrawColor(200);doc.setLineWidth(0.3);doc.line(MARGIN,sigY,PW-MARGIN,sigY);
-    doc.setFontSize(8);doc.setTextColor(80);doc.setFont('helvetica','normal');
-    doc.line(MARGIN+10,sigY+10,MARGIN+60,sigY+10);
-    doc.text('Class Teacher',MARGIN+35,sigY+14,{align:'center'});
-    doc.line(PW-MARGIN-60,sigY+10,PW-MARGIN-10,sigY+10);
-    doc.text('Principal / H.M.',PW-MARGIN-35,sigY+14,{align:'center'});
-    doc.setTextColor(30);
-  }
-
-  const cls=state.className?'_Cls'+state.className:'';
-  const sec=state.sectionName?'_Sec'+state.sectionName:'';
-  doc.save(`YellowSheet${cls}${sec}_CONSOLIDATED_AllExams.pdf`);
 }
 
 function generateOnePDF(examLabel){
@@ -1734,55 +1534,51 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// UPLOAD MODE — FULL YEAR vs SINGLE EXAM
+// PWA SERVICE WORKER + INSTALL
+// ═══════════════════════════════════════════════════════════════════════
+if('serviceWorker' in navigator){
+  const _swHost=location.hostname;
+  const _swSkip=_swHost==='localhost'?false:['claudeusercontent.com','claude.ai','anthropic.com'].some(d=>_swHost.endsWith(d));
+  if(!_swSkip){
+    window.addEventListener('load',()=>{
+      navigator.serviceWorker.register('./sw.js')
+        .then(reg=>console.log('[YS] SW registered, scope:',reg.scope))
+        .catch(err=>console.warn('[YS] SW registration failed:',err));
+    });
+  }
+}
+// ═══════════════════════════════════════════════════════════════════════
+// UPLOAD MODE TOGGLE
 // ═══════════════════════════════════════════════════════════════════════
 function setUploadMode(mode){
   state.uploadMode=mode;
   document.getElementById('btn-mode-full').className='btn '+(mode==='full'?'btn-primary':'btn-outline');
   document.getElementById('btn-mode-single').className='btn '+(mode==='single'?'btn-primary':'btn-outline');
   document.getElementById('single-exam-options').style.display=mode==='single'?'block':'none';
-  // Update card sub description
   const desc=document.getElementById('upload-mode-desc');
-  if(mode==='single'){
-    desc.textContent='Upload a single-sheet Excel file for any one exam. Results for that exam will be generated for each student.';
-  } else {
-    desc.textContent='Upload your .xlsx file with all four exam sheets (FIRST UNIT TEST · FIRST TERM · SECOND UNIT TEST · ANNUAL EXAM).';
-  }
-  // Update step1 next button label
-  const btn=document.getElementById('btn-step1-next');
-  if(state.workbook){
-    if(mode==='single'){
-      btn.textContent='Next: Select Faculty →';
-    } else {
-      btn.textContent='Next: Select Faculty →';
-    }
-  }
+  desc.textContent=mode==='single'
+    ?'Upload a single-sheet Excel file for any one exam. Results for that exam will be generated per student.'
+    :'Upload your .xlsx file with all four exam sheets (FIRST UNIT TEST · FIRST TERM · SECOND UNIT TEST · ANNUAL EXAM).';
 }
 
 function step1Next(){
-  if(state.uploadMode==='single'){
-    if(!state.singleExamType){toast('Please select an exam type first','error');return;}
-    goToStep(2);
-  } else {
-    goToStep(2);
-  }
+  if(state.uploadMode==='single'&&!state.singleExamType){toast('Please select an exam type first','error');return;}
+  goToStep(2);
 }
 
-// Single-sheet parser — fills state like parseAllSheets but only one exam
+// ═══════════════════════════════════════════════════════════════════════
+// SINGLE EXAM SHEET PARSER
+// ═══════════════════════════════════════════════════════════════════════
 function parseSingleSheet(){
   const wb=state.workbook,cfg=state.cfg;
   const examLabel=state.singleExamType;
   const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
-  if(!ec){toast('Please select an exam type','error');return false;}
-
-  // Try to find the first valid sheet
+  if(!ec)throw new Error('No exam type selected');
   const ws=wb.Sheets[wb.SheetNames[0]];
   const rows=parseSheetToRows(ws);
-
   state.allDfs={};state.sheetStatus={};state.allStudents={};state.studentRolls=[];
   state.allDfs[examLabel]=rows;
   state.sheetStatus[examLabel]='found';
-
   for(const row of rows){
     const roll=String(row['ROLL NO.']||'').trim();
     if(!roll||roll.toUpperCase()==='NAN')continue;
@@ -1810,109 +1606,76 @@ function parseSingleSheet(){
     state.internalMarks[roll]={};
     for(const abbr of state.allStudents[roll].subjects)state.internalMarks[roll][abbr]='0';
   }
-  return true;
-}
-
-// ── Override parseAndGoStep3 to branch on mode ────────────────────────
-const _origParseAndGoStep3=parseAndGoStep3;
-function parseAndGoStep3(){
-  if(!state.faculty){toast('Please select a faculty first','error');return;}
-  if(state.uploadMode==='single'){
-    if(!state.singleExamType){toast('Please select exam type in Step 1','error');return;}
-    showLoading('Parsing single exam sheet…');
-    setTimeout(()=>{
-      try{
-        if(!parseSingleSheet()){hideLoading();return;}
-        renderSingleSheetStatus();
-        renderPreview();
-        renderInternalMarksSingle();
-        hideLoading();goToStep(3);toast(`Parsed ${state.studentRolls.length} students`,'success');
-      }catch(err){hideLoading();toast('Parse error: '+err.message,'error');console.error(err);}
-    },50);
-    return;
-  }
-  _origParseAndGoStep3();
 }
 
 function renderSingleSheetStatus(){
   const examLabel=state.singleExamType;
-  const card=document.getElementById('sheet-status-card');
-  card.style.display='block';
+  document.getElementById('sheet-status-card').style.display='block';
   document.getElementById('sheet-status-content').innerHTML=
-    `<div class="sheet-status"><span class="sheet-badge sheet-found">✓ ${examLabel} (Single Sheet Mode)</span></div>
-     <p style="font-size:.82rem;color:var(--text-muted);margin-top:8px">📋 Single exam mode — only <strong>${examLabel}</strong> will be processed. No internal marks required for this mode (set to 0).</p>`;
+    `<div class="sheet-status"><span class="sheet-badge sheet-found">✓ ${examLabel} — Single Sheet Mode</span></div>
+     <p style="font-size:.82rem;color:var(--text-muted);margin-top:8px">Processing <strong>${examLabel}</strong> only. Internal marks are optional.</p>`;
 }
 
 function renderInternalMarksSingle(){
-  // For single-exam mode, show a simplified note and still allow manual marks if desired
   const examLabel=state.singleExamType;
   const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
   const maxStr=ec?`(exam max: ${ec.maxPerSub||'70/80'} per subject)`:'';
-  // Re-use regular internal marks render for optional extras
   renderInternalMarks();
-  // Insert a note at the top
-  const container=document.getElementById('internal-marks-content');
-  container.insertAdjacentHTML('afterbegin',
+  document.getElementById('internal-marks-content').insertAdjacentHTML('afterbegin',
     `<div class="alert alert-info" style="margin-bottom:14px">
-      📋 <strong>Single Exam Mode</strong> — ${examLabel} ${maxStr}.<br>
-      Internal marks below are <em>optional</em>. Leave as 0 if not applicable for this exam.
+      📋 <strong>Single Exam Mode — ${examLabel}</strong> ${maxStr}. Internal marks optional; leave as 0 if not applicable.
      </div>`);
 }
 
-// ─── generateReport patch for single-exam mode ───────────────────────
-const _origGenerateReport=generateReport;
-function generateReport(){
-  if(state.uploadMode==='single'){
-    showLoading('Calculating single exam results…');
-    setTimeout(()=>{
-      try{
-        const examLabel=state.singleExamType;
-        const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
-        const cfg=state.cfg;
-        state.studentResults=[];
-        for(const roll of state.studentRolls){
-          const s=state.allStudents[roll];const subj6=s.subjects;
-          const examData=s.exams[examLabel]||{};
-          const examMarks={},a100Single={};
-          let totalObt=0,totalMax=0;
-          for(const abbr of subj6){
-            const[,annMax]=cfg.subjects[abbr]||[abbr,80];
-            const maxM=(examLabel==='ANNUAL EXAM (70/80)')?annMax:(ec?.maxPerSub||25);
-            const raw=examData[abbr];
-            const intM=parseFloat(state.internalMarks[roll]?.[abbr])||0;
-            let obt=0;
-            if(raw!=='AB')obt=parseFloat(raw)||0;
-            examMarks[abbr]=obt;
-            a100Single[abbr]=obt+intM;
-            totalObt+=obt+intM;
-            totalMax+=maxM+(intM>0?intM:0);
-          }
-          const gt=Object.values(a100Single).reduce((s,v)=>s+v,0);
-          const maxTotal=subj6.length*(ec?.maxPerSub||25);
-          const pc=maxTotal>0?Math.round(gt/maxTotal*10000)/100:0;
-          let isP=true;
-          for(const abbr of subj6){
-            const m=a100Single[abbr];
-            let req=ec?.passMark||9;
-            if(examLabel==='ANNUAL EXAM (70/80)')req=cfg.subjects[abbr]?.[1]===70?25:28;
-            if(m<req){isP=false;break;}
-          }
-          state.studentResults.push({roll,name:s.name,subj6,t200:examMarks,a100:a100Single,gt,pc,pass:isP,rank:''});
+// ═══════════════════════════════════════════════════════════════════════
+// SINGLE EXAM REPORT GENERATION
+// ═══════════════════════════════════════════════════════════════════════
+function generateSingleReport(){
+  showLoading('Calculating single exam results…');
+  setTimeout(()=>{
+    try{
+      const examLabel=state.singleExamType;
+      const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
+      const cfg=state.cfg;
+      state.studentResults=[];
+      for(const roll of state.studentRolls){
+        const s=state.allStudents[roll];const subj6=s.subjects;
+        const examData=s.exams[examLabel]||{};
+        const examMarks={},a100Single={};
+        for(const abbr of subj6){
+          const[,annMax]=cfg.subjects[abbr]||[abbr,80];
+          const maxM=(examLabel==='ANNUAL EXAM (70/80)')?annMax:(ec?.maxPerSub||25);
+          const raw=examData[abbr];
+          const intM=parseFloat(state.internalMarks[roll]?.[abbr])||0;
+          const obt=(raw==='AB')?0:(parseFloat(raw)||0);
+          examMarks[abbr]=obt;
+          a100Single[abbr]=obt+intM;
         }
-        const passGTs=[...new Set(state.studentResults.filter(r=>r.pass).map(r=>r.gt))].sort((a,b)=>b-a);
-        const rankMap=Object.fromEntries(passGTs.map((v,i)=>[v,i+1]));
-        for(const sr of state.studentResults)sr.rank=sr.pass?rankMap[sr.gt]:'';
-        state.reportGenerated=true;
-        renderSingleReport();hideLoading();goToStep(4);
-        toast('Single exam report generated!','success');
-      }catch(err){hideLoading();toast('Report error: '+err.message,'error');console.error(err);}
-    },80);
-    return;
-  }
-  _origGenerateReport();
+        const gt=Object.values(a100Single).reduce((s,v)=>s+v,0);
+        const subCount=subj6.length;
+        const maxPer=(examLabel==='ANNUAL EXAM (70/80)')?null:(ec?.maxPerSub||25);
+        const totalMax=maxPer?subCount*maxPer:subj6.reduce((s,a)=>{const[,am]=cfg.subjects[a]||[a,80];return s+am;},0);
+        const pc=totalMax>0?Math.round(gt/totalMax*10000)/100:0;
+        let isP=true;
+        for(const abbr of subj6){
+          const m=a100Single[abbr];
+          let req=ec?.passMark||9;
+          if(examLabel==='ANNUAL EXAM (70/80)')req=cfg.subjects[abbr]?.[1]===70?25:28;
+          if(m<req){isP=false;break;}
+        }
+        state.studentResults.push({roll,name:s.name,subj6,t200:examMarks,a100:a100Single,gt,pc,pass:isP,rank:''});
+      }
+      const passGTs=[...new Set(state.studentResults.filter(r=>r.pass).map(r=>r.gt))].sort((a,b)=>b-a);
+      const rankMap=Object.fromEntries(passGTs.map((v,i)=>[v,i+1]));
+      for(const sr of state.studentResults)sr.rank=sr.pass?rankMap[sr.gt]:'';
+      state.reportGenerated=true;
+      renderSingleReportPage();hideLoading();goToStep(4);
+      toast('Single exam report generated!','success');
+    }catch(err){hideLoading();toast('Report error: '+err.message,'error');console.error(err);}
+  },80);
 }
 
-function renderSingleReport(){
+function renderSingleReportPage(){
   const examLabel=state.singleExamType;
   const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
   const passed=state.studentResults.filter(r=>r.pass).length;
@@ -1929,10 +1692,12 @@ function renderSingleReport(){
   const subHdrs=mc.map(a=>{const[nm]=cfg.subjects[a]||[a];return`<th>${nm}<br><small style="font-weight:400;opacity:.7">/${maxPerSub}</small></th>`;}).join('');
   const rows=state.studentResults.map(sr=>{
     const cells=mc.map(a=>{
-      if(sr.subj6.includes(a)){const v=sr.a100[a];
+      if(sr.subj6.includes(a)){
+        const v=sr.a100[a];
         let req=ec?.passMark||9;
         if(examLabel==='ANNUAL EXAM (70/80)')req=cfg.subjects[a]?.[1]===70?25:28;
-        return`<td style="${v<req?'color:var(--danger);font-weight:600':''}">${v}</td>`;}
+        return`<td style="${v<req?'color:var(--danger);font-weight:600':''}">${v}</td>`;
+      }
       return`<td style="color:var(--text-light)">—</td>`;
     }).join('');
     return`<tr><td><strong>${sr.roll}</strong></td><td>${sr.name}</td>${cells}
@@ -1940,11 +1705,10 @@ function renderSingleReport(){
       <td>${sr.pass?'<span class="pass-chip">PASS</span>':'<span class="fail-chip">FAIL</span>'}</td>
       <td>${sr.rank?'<span class="rank-chip">🏅 '+sr.rank+'</span>':'—'}</td></tr>`;
   }).join('');
-  const toppersHtml=buildToppersHtmlSingle(examLabel,ec);
   document.getElementById('report-content').innerHTML=`
     ${bannerHtml}
     <div class="alert alert-info" style="margin-bottom:16px">
-      📋 <strong>Single Exam Report:</strong> ${examLabel} &nbsp;·&nbsp; Results per student for this exam only.
+      📋 <strong>Single Exam Report:</strong> ${examLabel} &nbsp;·&nbsp; Individual exam results per student.
     </div>
     <div class="stats-bar">
       <div class="stat-box"><div class="stat-num" style="color:var(--navy)">${state.studentResults.length}</div><div class="stat-lbl">Total Students</div></div>
@@ -1953,90 +1717,279 @@ function renderSingleReport(){
       <div class="stat-box"><div class="stat-num" style="color:var(--gold)">${pct}%</div><div class="stat-lbl">Pass %</div></div>
     </div>
     <div class="actions-row">
-      <button class="btn btn-success btn-lg" onclick="generateSinglePDF()">📄 Download PDF Slips (${examLabel})</button>
+      <button class="btn btn-success btn-lg" onclick="generateSinglePDF()">📄 Download PDF Slips</button>
       <button class="btn btn-outline" onclick="goToStep(3)">← Edit Marks</button>
       <button class="btn btn-outline" onclick="startOver()" style="margin-left:auto;border-color:var(--danger);color:var(--danger)">🔄 Start New Report</button>
     </div>
     <div class="card">
       <div class="card-title">📋 ${examLabel} — Result Summary</div>
-      <div class="card-sub">Marks per subject. <span style="color:var(--danger)">Red</span> = below pass mark. Rank = dense rank among PASS students.</div>
+      <div class="card-sub"><span style="color:var(--danger)">Red</span> = below pass mark. Rank = dense rank among PASS students.</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>Roll</th><th>Name</th>${subHdrs}
-          <th>Total</th><th>%</th><th>Result</th><th>Rank</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>
+        <thead><tr><th>Roll</th><th>Name</th>${subHdrs}<th>Total</th><th>%</th><th>Result</th><th>Rank</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
     </div>
-    ${toppersHtml}`;
-}
-
-function buildToppersHtmlSingle(examLabel,ec){
-  const cfg=state.cfg,mc=state.masterCols;
-  const passed=state.studentResults.filter(r=>r.pass);
-  if(!passed.length)return'';
-  const sorted=[...passed].sort((a,b)=>b.gt-a.gt||a.roll-b.roll);
-  const medals=['🥇','🥈','🥉'];
-  const topRows=sorted.slice(0,3).map((sr,i)=>`
-    <tr>
-      <td style="text-align:center;font-size:1.4rem">${medals[i]||''}</td>
-      <td><strong>${sr.roll}</strong></td><td>${sr.name}</td>
-      <td><strong>${sr.gt}</strong></td><td><strong>${sr.pc}%</strong></td>
-      <td><span class="rank-chip">🏅 Rank ${sr.rank}</span></td>
-    </tr>`).join('');
-  const maxPerSub=ec?.maxPerSub||'?';
-  const subRows=mc.map(abbr=>{
-    const[sname]=cfg.subjects[abbr]||[abbr];
-    const candidates=state.studentResults.filter(r=>r.subj6.includes(abbr));
-    if(!candidates.length)return'';
-    const topScore=Math.max(...candidates.map(r=>r.a100[abbr]));
-    const toppers=candidates.filter(r=>r.a100[abbr]===topScore);
-    const names=toppers.map(r=>`${r.name} (${r.roll})`).join(', ');
-    return`<tr><td>${sname}</td><td>${names}</td><td><strong>${topScore}</strong> / ${maxPerSub}</td></tr>`;
-  }).join('');
-  return`
-    <div class="card" style="border:2px solid var(--gold)">
-      <div class="card-title">🏆 Toppers — ${examLabel}</div>
-      <div class="card-sub">Based on marks in this exam only.</div>
-      <div style="margin-bottom:20px">
-        <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Medal</th><th>Roll</th><th>Name</th><th>Total Marks</th><th>Percentage</th><th>Rank</th></tr></thead>
-          <tbody>${topRows}</tbody>
-        </table></div>
-      </div>
-      <div>
-        <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">📚 Subject-Wise Toppers</div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Subject</th><th>Topper(s)</th><th>Marks /${maxPerSub}</th></tr></thead>
-          <tbody>${subRows}</tbody>
-        </table></div>
-      </div>
-    </div>`;
+    ${buildToppersHtmlForExam(examLabel,ec,'single')}`;
 }
 
 function generateSinglePDF(){
   showLoading('Generating PDF slips…');
   setTimeout(()=>{
-    try{
-      generateOnePDF(state.singleExamType);
-      hideLoading();toast('PDF downloaded!','success');
-    }catch(err){hideLoading();toast('PDF error: '+err.message,'error');console.error(err);}
+    try{generateOnePDF(state.singleExamType);hideLoading();toast('PDF downloaded!','success');}
+    catch(err){hideLoading();toast('PDF error: '+err.message,'error');console.error(err);}
   },80);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// PWA SERVICE WORKER + INSTALL
+// TOPPERS — shared builder for both full-year and single-exam
 // ═══════════════════════════════════════════════════════════════════════
-if('serviceWorker' in navigator){
-  const _swHost = location.hostname;
-  const _swSkip = _swHost === 'localhost' ? false :
-    ['claudeusercontent.com','claude.ai','anthropic.com'].some(d => _swHost.endsWith(d));
-  if(!_swSkip){
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(reg => console.log('[YS] SW registered, scope:', reg.scope))
-        .catch(err => console.warn('[YS] SW registration failed:', err));
-    });
+function buildToppers3(candidates){
+  // Returns [{rank,medal,student}, ...] for top 3 distinct score positions
+  const sorted=[...candidates].sort((a,b)=>b.gt-a.gt);
+  const result=[];let rank=1,i=0;
+  while(i<sorted.length&&result.length<3){
+    const score=sorted[i].gt;
+    const group=sorted.filter(s=>s.gt===score);
+    result.push({rank,score,group,medal:['🥇','🥈','🥉'][result.length]});
+    i+=group.length;rank+=group.length;
   }
+  return result;
 }
+
+function buildSubjectToppers3(mc,cfg,results,maxLabel){
+  // For each subject, find top 3 distinct score positions
+  return mc.map(abbr=>{
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const candidates=results.filter(r=>r.subj6.includes(abbr));
+    if(!candidates.length)return null;
+    const sorted=[...candidates].sort((a,b)=>b.a100[abbr]-a.a100[abbr]);
+    const toppers=[];let rank=1,i=0;
+    while(i<sorted.length&&toppers.length<3){
+      const score=sorted[i].a100[abbr];
+      const group=sorted.filter(s=>s.a100[abbr]===score);
+      toppers.push({rank,score,group,medal:['🥇','🥈','🥉'][toppers.length]});
+      i+=group.length;rank+=group.length;
+    }
+    return{abbr,sname,toppers,maxLabel};
+  }).filter(Boolean);
+}
+
+function buildToppersHtml(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const passed=state.studentResults.filter(r=>r.pass);
+  if(!passed.length)return'';
+  const top3=buildToppers3(passed);
+  const medals=['🥇','🥈','🥉'];
+  const topRows=top3.map(({rank,score,group,medal})=>
+    group.map((sr,gi)=>`<tr>
+      <td class="toppers-medal">${gi===0?medal:''}</td>
+      <td>${gi===0?`<strong>Rank ${rank}</strong>`:''}</td>
+      <td><strong>${sr.roll}</strong></td><td>${sr.name}</td>
+      <td><strong>${sr.gt}</strong> / 600</td>
+      <td><strong>${sr.pc}%</strong></td>
+    </tr>`).join('')
+  ).join('');
+  const subData=buildSubjectToppers3(mc,cfg,state.studentResults,'100');
+  const subRows=subData.map(({sname,toppers})=>
+    toppers.map(({rank,score,group,medal},ti)=>
+      group.map((sr,gi)=>`<tr>
+        <td>${ti===0&&gi===0?`<strong>${sname}</strong>`:''}</td>
+        <td>${gi===0?medal:''}</td>
+        <td>${gi===0?`Rank ${rank}`:''}</td>
+        <td>${sr.name} (${sr.roll})</td>
+        <td><strong>${score}</strong> / 100</td>
+      </tr>`).join('')
+    ).join('')
+  ).join('');
+  return`<div class="card" style="border:2px solid var(--gold)">
+    <div class="card-title">🏆 Toppers Summary — Consolidated Result</div>
+    <div class="card-sub">Based on final average marks /100 (all exams + internal).</div>
+    <div style="margin-bottom:20px">
+      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Medal</th><th>Rank</th><th>Roll</th><th>Student Name</th><th>Total /600</th><th>Percentage</th></tr></thead>
+        <tbody>${topRows}</tbody>
+      </table></div>
+    </div>
+    <div>
+      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">📚 Subject-Wise Top 3</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Subject</th><th>Medal</th><th>Rank</th><th>Student</th><th>Marks /100</th></tr></thead>
+        <tbody>${subRows}</tbody>
+      </table></div>
+    </div>
+  </div>`;
+}
+
+function buildToppersHtmlForExam(examLabel,ec,mode){
+  const cfg=state.cfg,mc=state.masterCols;
+  const passed=state.studentResults.filter(r=>r.pass);
+  if(!passed.length)return'';
+  const top3=buildToppers3(passed);
+  const maxPerSub=ec?.maxPerSub||'?';
+  const topRows=top3.map(({rank,score,group,medal})=>
+    group.map((sr,gi)=>`<tr>
+      <td class="toppers-medal">${gi===0?medal:''}</td>
+      <td>${gi===0?`<strong>Rank ${rank}</strong>`:''}</td>
+      <td><strong>${sr.roll}</strong></td><td>${sr.name}</td>
+      <td><strong>${sr.gt}</strong></td><td><strong>${sr.pc}%</strong></td>
+    </tr>`).join('')
+  ).join('');
+  const subData=buildSubjectToppers3(mc,cfg,state.studentResults,maxPerSub);
+  const subRows=subData.map(({sname,toppers,maxLabel})=>
+    toppers.map(({rank,score,group,medal},ti)=>
+      group.map((sr,gi)=>`<tr>
+        <td>${ti===0&&gi===0?`<strong>${sname}</strong>`:''}</td>
+        <td>${gi===0?medal:''}</td>
+        <td>${gi===0?`Rank ${rank}`:''}</td>
+        <td>${sr.name} (${sr.roll})</td>
+        <td><strong>${score}</strong> / ${maxLabel}</td>
+      </tr>`).join('')
+    ).join('')
+  ).join('');
+  return`<div class="card" style="border:2px solid var(--gold)">
+    <div class="card-title">🏆 Toppers — ${examLabel}</div>
+    <div class="card-sub">Based on marks in this exam only.</div>
+    <div style="margin-bottom:20px">
+      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Medal</th><th>Rank</th><th>Roll</th><th>Name</th><th>Total</th><th>%</th></tr></thead>
+        <tbody>${topRows}</tbody>
+      </table></div>
+    </div>
+    <div>
+      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">📚 Subject-Wise Top 3</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Subject</th><th>Medal</th><th>Rank</th><th>Student</th><th>Marks /${maxPerSub}</th></tr></thead>
+        <tbody>${subRows}</tbody>
+      </table></div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// CONSOLIDATED PDF — All Exams + Internal per student (Portrait A4)
+// ═══════════════════════════════════════════════════════════════════════
+function generateConsolidatedPDF(){
+  const{jsPDF}=window.jspdf;
+  const cfg=state.cfg,mc=state.masterCols;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const PW=210,PH=297,MARGIN=10,CW=PW-2*MARGIN;
+
+  for(let si=0;si<state.studentResults.length;si++){
+    if(si>0)doc.addPage();
+    const sr=state.studentResults[si];
+    const s=state.allStudents[sr.roll];
+    let cy=MARGIN;
+
+    // Header
+    if(state.letterheadDataUrl){
+      try{doc.addImage(state.letterheadDataUrl,state.letterheadFormat,MARGIN,cy,CW,22,'','FAST');cy+=22;}catch(e){}
+      doc.setFillColor(13,27,56);doc.rect(MARGIN,cy,CW,7,'F');
+      const ip=[state.className?'Class '+state.className+(state.sectionName?' – Sec. '+state.sectionName:''):'',state.faculty?state.faculty+' Faculty':'',state.academicYear||''].filter(Boolean).join('   |   ');
+      doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(245,193,88);
+      doc.text(ip,PW/2,cy+4.8,{align:'center'});cy+=7;
+      doc.setFillColor(37,61,120);doc.rect(MARGIN,cy,CW,9,'F');
+      doc.setTextColor(255,255,255);doc.setFontSize(10);doc.setFont('helvetica','bold');
+      doc.text('CONSOLIDATED MARKSHEET — ALL EXAMS',PW/2,cy+6,{align:'center'});cy+=9;
+    }else{
+      doc.setFillColor(13,27,56);doc.rect(MARGIN,cy,CW,28,'F');
+      if(state.schoolName){doc.setFontSize(13);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);doc.text(state.schoolName,PW/2,cy+9,{align:'center'});}
+      const ip=[state.className?'Class '+state.className+(state.sectionName?' – '+state.sectionName:''):'',state.faculty?state.faculty+' Faculty':'',state.academicYear||''].filter(Boolean).join('  ·  ');
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
+      if(ip)doc.text(ip,PW/2,cy+15.5,{align:'center'});
+      doc.setFontSize(10.5);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+      doc.text('CONSOLIDATED MARKSHEET — ALL EXAMS',PW/2,cy+22,{align:'center'});cy+=28;
+    }
+    cy+=3;
+
+    // Student info
+    doc.setFillColor(243,247,254);doc.rect(MARGIN,cy,CW,10,'F');
+    doc.setDrawColor(200);doc.setLineWidth(0.3);doc.rect(MARGIN,cy,CW,10);
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+    doc.text('Roll No.:',MARGIN+3,cy+6.5);
+    doc.setFont('helvetica','normal');doc.text(String(sr.roll),MARGIN+22,cy+6.5);
+    doc.setFont('helvetica','bold');doc.text('Name:',PW/2-30,cy+6.5);
+    doc.setFont('helvetica','normal');
+    doc.text(sr.name.length>30?sr.name.substring(0,30)+'…':sr.name,PW/2-14,cy+6.5);
+    cy+=12;
+
+    // Table
+    const colW=[46,20,22,20,24,18,20];
+    const colX=[MARGIN];for(let i=0;i<colW.length-1;i++)colX.push(colX[colX.length-1]+colW[i]);
+    const HDR_H=8,ROW_H=8;
+    const tblStartY=cy;
+    doc.setFillColor(13,27,56);doc.rect(MARGIN,cy,CW,HDR_H,'F');
+    doc.setFontSize(6.5);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+    ['Subject','UT1/25','1st Term/50','UT2/25','Annual','Internal','Avg/100'].forEach((h,i)=>doc.text(h,colX[i]+colW[i]/2,cy+5.5,{align:'center'}));
+    cy+=HDR_H;
+    const subjs=mc.filter(a=>sr.subj6.includes(a));
+    subjs.forEach((abbr,ri)=>{
+      const[sname]=cfg.subjects[abbr]||[abbr];
+      const ut1=cleanMarks(s.exams['FIRST UNIT TEST (25)']?.[abbr]);
+      const ft=cleanMarks(s.exams['FIRST TERM EXAM (50)']?.[abbr]);
+      const ut2=cleanMarks(s.exams['SECOND UNIT TEST (25)']?.[abbr]);
+      const ann=cleanMarks(s.exams['ANNUAL EXAM (70/80)']?.[abbr]);
+      const intM=parseFloat(state.internalMarks[sr.roll]?.[abbr])||0;
+      const avg=sr.a100[abbr];
+      doc.setFillColor(...(ri%2===0?[255,255,255]:[243,247,254]));
+      doc.rect(MARGIN,cy,CW,ROW_H,'F');
+      doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);
+      doc.text(sname,colX[0]+2,cy+5.2);
+      [ut1,ft,ut2,ann,intM].forEach((v,vi)=>doc.text(String(v),colX[vi+1]+colW[vi+1]/2,cy+5.2,{align:'center'}));
+      if(avg<35){doc.setTextColor(192,57,43);doc.setFont('helvetica','bold');}
+      doc.text(String(avg),colX[6]+colW[6]/2,cy+5.2,{align:'center'});
+      doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');
+      cy+=ROW_H;
+    });
+    // Total row
+    const t200Tot=Object.values(sr.t200).reduce((a,v)=>a+(parseFloat(v)||0),0);
+    doc.setFillColor(210,228,248);doc.rect(MARGIN,cy,CW,ROW_H,'F');
+    doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+    doc.text('TOTAL / AVERAGE',colX[0]+2,cy+5.2);
+    doc.text(String(Math.round(t200Tot)),colX[5]+colW[5]/2,cy+5.2,{align:'center'});
+    doc.text(`${sr.gt} / 600`,colX[6]+colW[6]/2,cy+5.2,{align:'center'});
+    cy+=ROW_H;
+    // Table border + col dividers
+    doc.setDrawColor(160);doc.setLineWidth(0.3);
+    doc.rect(MARGIN,tblStartY,CW,cy-tblStartY);
+    colX.slice(1).forEach(x=>doc.line(x,tblStartY,x,cy));
+    cy+=4;
+
+    // Result badge
+    const rf_w=CW*0.45,rf_x=MARGIN+(CW-rf_w)/2;
+    if(sr.pass){
+      doc.setFillColor(214,244,223);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'F');
+      doc.setDrawColor(26,122,71);doc.setLineWidth(0.7);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'S');
+      doc.setTextColor(26,122,71);doc.setFontSize(10);doc.setFont('helvetica','bold');
+      doc.text('✓  PASS',rf_x+rf_w/2,cy+6.8,{align:'center'});
+    }else{
+      doc.setFillColor(253,228,228);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'F');
+      doc.setDrawColor(192,57,43);doc.setLineWidth(0.7);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'S');
+      doc.setTextColor(192,57,43);doc.setFontSize(10);doc.setFont('helvetica','bold');
+      doc.text('✗  FAIL',rf_x+rf_w/2,cy+6.8,{align:'center'});
+    }
+    cy+=13;
+    // Summary line
+    doc.setFontSize(9);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+    doc.text(`Grand Total: ${sr.gt} / 600`,MARGIN+5,cy+5);
+    doc.text(`Percentage: ${sr.pc}%`,MARGIN+70,cy+5);
+    if(sr.rank)doc.text(`Rank: ${sr.rank}`,MARGIN+140,cy+5);
+    // Signatures
+    const sigY=PH-MARGIN-18;
+    doc.setDrawColor(200);doc.setLineWidth(0.3);doc.line(MARGIN,sigY,PW-MARGIN,sigY);
+    doc.setFontSize(8);doc.setTextColor(80);doc.setFont('helvetica','normal');
+    doc.line(MARGIN+10,sigY+9,MARGIN+58,sigY+9);
+    doc.text('Class Teacher',MARGIN+34,sigY+13,{align:'center'});
+    doc.line(PW-MARGIN-58,sigY+9,PW-MARGIN-10,sigY+9);
+    doc.text('Principal / H.M.',PW-MARGIN-34,sigY+13,{align:'center'});
+    doc.setTextColor(30);
+  }
+  const cls=state.className?'_Cls'+state.className:'';
+  const sec=state.sectionName?'_Sec'+state.sectionName:'';
+  doc.save(`YellowSheet${cls}${sec}_CONSOLIDATED_AllExams.pdf`);
+}
+
 </script>
 </body>
 </html>
