@@ -473,6 +473,28 @@ tbody tr:last-child td{border-bottom:none}
 
     <div id="internal-marks-content" style="overflow-x:auto"></div>
   </div>
+  <div class="card">
+    <div class="card-title">📊 Optional: Co-Curricular / Grade Subjects</div>
+    <div class="card-sub">Upload an Excel or CSV file with grade-based subjects. These will print on PDF result slips below the main subjects.</div>
+    <div class="alert alert-info" style="margin-bottom:14px">
+      📋 <strong>Expected columns:</strong> <code>ROLL NO.</code> + any grade subject columns — e.g. <code>Env.edu. &amp; Water Security</code>, <code>Health &amp; Physical Edu.</code>. Grades can be A1, A2, B1, B2, C1, C2, D, E, etc.
+    </div>
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <div class="upload-zone" id="grade-upload-zone" style="padding:22px 20px;flex:1;min-width:220px">
+        <input type="file" id="grade-file-input" accept=".xlsx,.xls,.csv">
+        <div class="upload-icon" style="width:44px;height:44px;font-size:20px">📊</div>
+        <h3 style="font-size:.9rem">Drop Grade Subjects file here</h3>
+        <p style="font-size:.76rem">Excel (.xlsx / .xls) or CSV — one row per student</p>
+        <div id="grade-file-badge" style="margin-top:6px"></div>
+      </div>
+      <button class="btn btn-outline" id="btn-clear-grades" onclick="clearGradeSubjects()" style="align-self:flex-start;margin-top:4px">✕ Clear Grades</button>
+    </div>
+    <div id="grade-preview-card" style="display:none;margin-top:14px">
+      <div style="font-size:.83rem;font-weight:600;color:var(--navy);margin-bottom:8px">Preview (first 5 students):</div>
+      <div id="grade-preview-content"></div>
+    </div>
+  </div>
+
   <div class="actions-row">
     <button class="btn btn-outline" onclick="goToStep(2)">← Back</button>
     <button class="btn btn-gold btn-lg" onclick="generateReport()">🚀 Generate Final Report &amp; Rank</button>
@@ -524,7 +546,8 @@ const state={
   reportGenerated:false,studentResults:[],
   schoolName:'',className:'',sectionName:'',academicYear:'',uploadMode:'full',singleExamType:'',
   letterheadDataUrl:null,letterheadFormat:'PNG',
-  appIconDataUrl:null,appIconFormat:'PNG'
+  appIconDataUrl:null,appIconFormat:'PNG',
+  gradeSubjects:{},gradeSubjectCols:[]
 };
 
 // ── Pre-load app icon for PDF use ──
@@ -687,6 +710,7 @@ function clearLetterhead(e){
   e.preventDefault();e.stopPropagation();
   state.letterheadDataUrl=null;state.letterheadFormat='PNG';
   state.uploadMode='full';state.singleExamType='';
+  state.gradeSubjects={};state.gradeSubjectCols=[];
   document.getElementById('lh-placeholder').style.display='';
   const img=document.getElementById('lh-preview');img.src='';img.style.display='none';
   document.getElementById('lh-clear-btn').style.display='none';
@@ -920,6 +944,21 @@ document.addEventListener('DOMContentLoaded',()=>{
       if(f)handleInternalFile(f);
     });
   }
+  // Grade subjects file input
+  const gradeInput=document.getElementById('grade-file-input');
+  if(gradeInput){
+    gradeInput.addEventListener('change',e=>{if(e.target.files[0])handleGradeSubjectsFile(e.target.files[0]);});
+  }
+  const gz=document.getElementById('grade-upload-zone');
+  if(gz){
+    gz.addEventListener('dragover',e=>{e.preventDefault();gz.classList.add('drag');});
+    gz.addEventListener('dragleave',()=>gz.classList.remove('drag'));
+    gz.addEventListener('drop',e=>{
+      e.preventDefault();gz.classList.remove('drag');
+      const f=e.dataTransfer.files[0];
+      if(f)handleGradeSubjectsFile(f);
+    });
+  }
 });
 
 function handleInternalFile(file){
@@ -971,6 +1010,92 @@ function handleInternalFile(file){
   };
   if(file.name.match(/\.csv$/i))reader.readAsText(file);
   else reader.readAsArrayBuffer(file);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// GRADE SUBJECTS — Upload, Parse, Preview, Clear
+// ═══════════════════════════════════════════════════════════════════════
+function handleGradeSubjectsFile(file){
+  if(!file.name.match(/\.(xlsx|xls|csv)$/i)){toast('Please upload an Excel or CSV file','error');return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      let wb;
+      if(file.name.match(/\.csv$/i)){
+        wb=XLSX.read(e.target.result,{type:'string'});
+      }else{
+        wb=XLSX.read(e.target.result,{type:'array'});
+      }
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
+      if(!rows.length){toast('No data found in grade subjects file','error');return;}
+      const firstRow=rows[0];
+      const allKeys=Object.keys(firstRow);
+      const rollKey=allKeys.find(k=>/roll\s*no/i.test(k)||k.toUpperCase()==='ROLL NO.')||allKeys[0];
+      const subjectCols=allKeys.filter(k=>k!==rollKey&&!(/roll/i.test(k)&&/no/i.test(k)));
+      if(!subjectCols.length){toast('No grade subject columns found — check column headers','error');return;}
+      state.gradeSubjects={};
+      state.gradeSubjectCols=subjectCols;
+      let matched=0,skipped=0;
+      for(const row of rows){
+        const roll=String(row[rollKey]||'').trim();
+        if(!roll||roll.toUpperCase()==='NAN'){skipped++;continue;}
+        const grades={};
+        for(const col of subjectCols){
+          const val=String(row[col]||'').trim();
+          if(val&&val.toUpperCase()!=='NAN')grades[col]=val;
+        }
+        state.gradeSubjects[roll]=grades;
+        matched++;
+      }
+      document.getElementById('grade-file-badge').innerHTML=
+        `<div class="file-badge">\u2705 ${file.name} \u2014 ${matched} student${matched!==1?'s':''} loaded</div>`;
+      renderGradeSubjectsPreview();
+      toast(`Grade subjects loaded: ${matched} student${matched!==1?'s':''}${skipped?', '+skipped+' skipped':''}`, 'success');
+    }catch(err){
+      toast('Error reading grade file: '+err.message,'error');
+      console.error(err);
+    }
+  };
+  if(file.name.match(/\.csv$/i))reader.readAsText(file);
+  else reader.readAsArrayBuffer(file);
+}
+
+function renderGradeSubjectsPreview(){
+  const card=document.getElementById('grade-preview-card');
+  const content=document.getElementById('grade-preview-content');
+  if(!card||!content)return;
+  const cols=state.gradeSubjectCols;
+  const rolls=Object.keys(state.gradeSubjects).slice(0,5);
+  if(!rolls.length||!cols.length){card.style.display='none';return;}
+  card.style.display='block';
+  const thds=cols.map(c=>`<th style="background:var(--navy);color:#fff;padding:7px 10px;white-space:nowrap">${c}</th>`).join('');
+  const trows=rolls.map(roll=>{
+    const g=state.gradeSubjects[roll]||{};
+    const cells=cols.map(c=>`<td style="padding:6px 10px;border-bottom:1px solid var(--border);text-align:center;font-weight:600">${g[c]||'\u2014'}</td>`).join('');
+    return`<tr><td style="padding:6px 10px;font-weight:700;border-bottom:1px solid var(--border)">${roll}</td>${cells}</tr>`;
+  }).join('');
+  const total=Object.keys(state.gradeSubjects).length;
+  const more=total>5?`<p style="font-size:.8rem;color:var(--text-muted);padding:7px 12px">\u2026and ${total-5} more student${total-5!==1?'s':''}</p>`:'';
+  content.innerHTML=`
+    <div class="table-wrap"><table style="font-size:.83rem">
+      <thead><tr><th style="background:var(--navy);color:#fff;padding:7px 10px">Roll No.</th>${thds}</tr></thead>
+      <tbody>${trows}</tbody>
+    </table></div>${more}
+    <p style="font-size:.82rem;color:var(--text-muted);margin-top:8px"><strong>${total}</strong> student${total!==1?'s':''} with grade data.</p>`;
+}
+
+function clearGradeSubjects(){
+  state.gradeSubjects={};
+  state.gradeSubjectCols=[];
+  const inp=document.getElementById('grade-file-input');
+  if(inp)inp.value='';
+  const badge=document.getElementById('grade-file-badge');
+  if(badge)badge.innerHTML='';
+  const card=document.getElementById('grade-preview-card');
+  if(card)card.style.display='none';
+  toast('Grade subjects data cleared','info');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1111,6 +1236,10 @@ function startOver(){
   document.getElementById('btn-step2-next').disabled=true;
   setUploadMode('full');
   document.getElementById('single-exam-type').value='';
+  // Reset grade subjects UI
+  const gradeInp=document.getElementById('grade-file-input');if(gradeInp)gradeInp.value='';
+  const gradeBadge=document.getElementById('grade-file-badge');if(gradeBadge)gradeBadge.innerHTML='';
+  const gradeCard=document.getElementById('grade-preview-card');if(gradeCard)gradeCard.style.display='none';
   goToStep(1);
   toast('Started fresh! Upload a new file.','info');
 }
@@ -1295,11 +1424,15 @@ function generateOnePDF(examLabel){
   doc.save(`YellowSheet${cls}${sec}_${safe}.pdf`);
 }
 
-// ── DRAW ONE SLIP — fully dynamic, uses every mm of space ────────────────
+// ── DRAW ONE SLIP — fully dynamic, fills all available space ────────────
 function drawSlip(doc,slip,x,y,w,h,examTitle){
   const{sr,rows,indivPass}=slip;
   const hasSchoolName=!!state.schoolName;
   const hasLetterhead=!!state.letterheadDataUrl;
+
+  // Grade subjects for this student
+  const gradeData=state.gradeSubjects?.[sr.roll]||{};
+  const gradeKeys=Object.keys(gradeData).filter(k=>gradeData[k]&&String(gradeData[k]).trim());
 
   // ── Outer border ────────────────────────────────────────────────────
   doc.setDrawColor(13,27,56);doc.setLineWidth(0.6);
@@ -1309,10 +1442,9 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
   let HDR_H=0, INFO_BAND_H=0, EXAM_BAND_H=0;
 
   if(hasLetterhead){
-    HDR_H=26;           // letterhead image
-    INFO_BAND_H=8;      // class / section / year / faculty — gold on navy
-    EXAM_BAND_H=9;      // exam title — white on navy-mid
-    // Letterhead image (full width, auto-fit)
+    HDR_H=26;
+    INFO_BAND_H=8;
+    EXAM_BAND_H=9;
     try{
       doc.addImage(state.letterheadDataUrl,state.letterheadFormat,x,y,w,HDR_H,'','FAST');
     }catch(e){
@@ -1320,38 +1452,28 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
       doc.setTextColor(255,255,255);doc.setFontSize(11);doc.setFont('helvetica','bold');
       doc.text(state.schoolName||'School',x+w/2,y+HDR_H/2+2,{align:'center'});
     }
-    // INFO band (class / section / year / faculty) — clearly visible
     doc.setFillColor(13,27,56);
     doc.rect(x,y+HDR_H,w,INFO_BAND_H,'F');
     const infoParts=[
-      state.className?'Class '+state.className+(state.sectionName?' – Sec. '+state.sectionName:''):'',
+      state.className?'Class '+state.className+(state.sectionName?' \u2013 Sec. '+state.sectionName:''):'',
       state.faculty?state.faculty+' Faculty':'',
       state.academicYear||''
     ].filter(Boolean);
     doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(245,193,88);
     doc.text(infoParts.join('   |   '),x+w/2,y+HDR_H+5.5,{align:'center'});
-    // EXAM TITLE band
     doc.setFillColor(37,61,120);
     doc.rect(x,y+HDR_H+INFO_BAND_H,w,EXAM_BAND_H,'F');
     doc.setTextColor(255,255,255);doc.setFontSize(10);doc.setFont('helvetica','bold');
     doc.text(examTitle,x+w/2,y+HDR_H+INFO_BAND_H+6.3,{align:'center'});
-
-  } else {
-    // Standard mode: navy band, YS/icon logo + school name + exam title
-    HDR_H = hasSchoolName ? 30 : 20;
+  }else{
+    HDR_H=hasSchoolName?30:20;
     doc.setFillColor(13,27,56);
     doc.rect(x,y,w,HDR_H,'F');
-
     const ICON_SIZE=HDR_H-5;
     const ICON_X=x+3,ICON_Y=y+2.5;
-
-    // App icon or YS fallback
     let iconDrawn=false;
     if(state.appIconDataUrl){
-      try{
-        doc.addImage(state.appIconDataUrl,state.appIconFormat,ICON_X,ICON_Y,ICON_SIZE,ICON_SIZE);
-        iconDrawn=true;
-      }catch(e){}
+      try{doc.addImage(state.appIconDataUrl,state.appIconFormat,ICON_X,ICON_Y,ICON_SIZE,ICON_SIZE);iconDrawn=true;}catch(e){}
     }
     if(!iconDrawn){
       doc.setFillColor(232,160,32);
@@ -1359,20 +1481,18 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
       doc.setTextColor(13,27,56);doc.setFontSize(9);doc.setFont('helvetica','bold');
       doc.text('YS',ICON_X+ICON_SIZE/2,ICON_Y+ICON_SIZE/2+1.5,{align:'center'});
     }
-
     const iconRight=ICON_X+ICON_SIZE+3.5;
-    const cx=iconRight+(w-(iconRight-x)-3)/2+iconRight-x; // center of content area
     const contentCX=x+iconRight-x+(w-(iconRight-x))/2;
     doc.setTextColor(255,255,255);
     if(hasSchoolName){
       doc.setFontSize(10.5);doc.setFont('helvetica','bold');
-      const sn=state.schoolName.length>40?state.schoolName.substring(0,40)+'…':state.schoolName;
+      const sn=state.schoolName.length>40?state.schoolName.substring(0,40)+'\u2026':state.schoolName;
       doc.text(sn,contentCX,y+9,{align:'center'});
       const subParts=[
-        state.className?'Class '+state.className+(state.sectionName?' – '+state.sectionName:''):'',
+        state.className?'Class '+state.className+(state.sectionName?' \u2013 '+state.sectionName:''):'',
         state.faculty?state.faculty+' Faculty':'',
         state.academicYear||''
-      ].filter(Boolean).join('  ·  ');
+      ].filter(Boolean).join('  \xb7  ');
       doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
       if(subParts)doc.text(subParts,contentCX,y+14.5,{align:'center'});
       doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
@@ -1380,37 +1500,38 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
     }else{
       doc.setFontSize(11);doc.setFont('helvetica','bold');
       doc.text(examTitle,contentCX,y+9,{align:'center'});
-      const subParts=[state.faculty?state.faculty+' Faculty':'',state.academicYear||''].filter(Boolean).join('  ·  ');
+      const subParts=[state.faculty?state.faculty+' Faculty':'',state.academicYear||''].filter(Boolean).join('  \xb7  ');
       doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
       if(subParts)doc.text(subParts,contentCX,y+15,{align:'center'});
     }
   }
 
-  // ═══ CONTENT AREA — dynamic layout ══════════════════════════════════
-  const totalHDR = HDR_H + INFO_BAND_H + EXAM_BAND_H;
-  const CONTENT_TOP = y + totalHDR;
+  // ═══ CONTENT AREA — dynamic layout, accounts for grade section ═══════
+  const totalHDR=HDR_H+INFO_BAND_H+EXAM_BAND_H;
+  const CONTENT_TOP=y+totalHDR;
+  const PAD_TOP=3;
+  const ROLL_H=12;
+  const PASSFAIL_H=13;
+  const SIG_H=20;
+  const TABLE_HDR=9;
+  const PAD_MID=3;
 
-  // Fixed height reservations (mm)
-  const PAD_TOP    = 3;   // gap after header
-  const ROLL_H     = 12;  // roll/name row + divider
-  const PASSFAIL_H = 14;  // pass/fail badge
-  const SIG_H      = 22;  // signature block at bottom
-  const TABLE_HDR  = 9;   // table column-header row
-  const PAD_MID    = 3;   // gap between table and pass/fail
+  // Grade section dimensions (pre-computed so ROW_H can adapt)
+  const GRADE_ROW_H=6.5;
+  const GRADE_HDR_H=7;
+  const GRADE_GAP=gradeKeys.length>0?3:0;
+  const GRADE_SECTION_H=gradeKeys.length>0?(GRADE_GAP+GRADE_HDR_H+gradeKeys.length*GRADE_ROW_H):0;
 
-  const contentHeight = h - totalHDR;
-  const nDataRows = rows.length; // subjects + TOTAL + Percentage
+  const contentHeight=h-totalHDR;
+  const nDataRows=rows.length;
+  const availForRows=contentHeight-PAD_TOP-ROLL_H-TABLE_HDR-PASSFAIL_H-PAD_MID-SIG_H-GRADE_SECTION_H;
+  // ROW_H: clamp between 6.5 and 13
+  const ROW_H=Math.min(13,Math.max(6.5,availForRows/nDataRows));
+  const dataFontSz=Math.min(10.5,Math.max(7,ROW_H*0.72));
+  const tblHdrFontSz=Math.min(9,Math.max(7,ROW_H*0.68));
+  const rollFontSz=Math.min(10,Math.max(8,ROW_H*0.78));
 
-  // Available height for table data rows
-  const availForRows = contentHeight - PAD_TOP - ROLL_H - TABLE_HDR - PASSFAIL_H - PAD_MID - SIG_H;
-  // ROW_H: clamp between 7 and 14
-  const ROW_H = Math.min(14, Math.max(7, availForRows / nDataRows));
-  // Font scale based on ROW_H
-  const dataFontSz = Math.min(10.5, Math.max(7, ROW_H * 0.72));
-  const tblHdrFontSz = Math.min(9, Math.max(7, ROW_H * 0.68));
-  const rollFontSz = Math.min(10, Math.max(8, ROW_H * 0.78));
-
-  let cy = CONTENT_TOP + PAD_TOP;
+  let cy=CONTENT_TOP+PAD_TOP;
 
   // ── Roll / Name row ──────────────────────────────────────────────
   doc.setTextColor(30,30,30);
@@ -1419,19 +1540,16 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
   doc.setFont('helvetica','normal');doc.text(String(sr.roll),x+24,cy+rollFontSz*0.35+1);
   doc.setFont('helvetica','bold');doc.text('Name:',x+w*0.38,cy+rollFontSz*0.35+1);
   doc.setFont('helvetica','normal');
-  // Adaptive font size so long names always fit without truncation
   const nameX=x+w*0.38+14;
-  const nameAvailW=w-(w*0.38+14)-4; // mm available for name text
+  const nameAvailW=w-(w*0.38+14)-4;
   let nameFontSz=rollFontSz;
   doc.setFontSize(nameFontSz);
-  // Scale font down until name fits (minimum 5.5pt)
   while(nameFontSz>5.5){
     const tw=doc.getStringUnitWidth(sr.name)*nameFontSz/doc.internal.scaleFactor;
     if(tw<=nameAvailW)break;
     nameFontSz-=0.4;
     doc.setFontSize(nameFontSz);
   }
-  // If still doesn't fit at minimum size, split to two lines within ROLL_H
   const finalTW=doc.getStringUnitWidth(sr.name)*nameFontSz/doc.internal.scaleFactor;
   if(finalTW>nameAvailW){
     const nameLines=doc.splitTextToSize(sr.name,nameAvailW);
@@ -1441,7 +1559,7 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
   }else{
     doc.text(sr.name,nameX,cy+rollFontSz*0.35+1);
   }
-  doc.setFontSize(rollFontSz); // restore roll-row font
+  doc.setFontSize(rollFontSz);
   cy+=ROLL_H-3;
   doc.setDrawColor(13,27,56);doc.setLineWidth(0.5);
   doc.line(x+2,cy,x+w-2,cy);
@@ -1451,16 +1569,12 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
   const cW=[w*0.52,w*0.22,w*0.22];
   const cX=[x+2,x+2+cW[0],x+2+cW[0]+cW[1]];
   const tblTopY=cy-1;
-
-  // Table header row
   doc.setFillColor(13,27,56);doc.rect(x+2,cy-1,w-4,TABLE_HDR,'F');
   doc.setTextColor(255,255,255);doc.setFontSize(tblHdrFontSz);doc.setFont('helvetica','bold');
   doc.text('Subject',cX[0]+2,cy+TABLE_HDR*0.62);
   doc.text('Max Marks',cX[1]+cW[1]/2,cy+TABLE_HDR*0.62,{align:'center'});
   doc.text('Marks Obtained',cX[2]+cW[2]/2,cy+TABLE_HDR*0.62,{align:'center'});
   cy+=TABLE_HDR+0.5;
-
-  // Data rows — stretched dynamically
   rows.forEach((row,ri)=>{
     const isTotal=row[0]==='TOTAL',isPct=row[0]==='Percentage';
     if(isTotal)doc.setFillColor(220,220,220);
@@ -1474,7 +1588,6 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
     const textY=cy+ROW_H*0.63;
     doc.text(row[0],cX[0]+2,textY);
     doc.text(String(row[1]),cX[1]+cW[1]/2,textY,{align:'center'});
-    // Colour-code obtained marks if failing
     if(!isTotal&&!isPct&&row[2]!=='0'&&parseFloat(row[2])===0){
       doc.setTextColor(150,150,150);
     }
@@ -1482,50 +1595,67 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
     doc.setTextColor(30,30,30);
     cy+=ROW_H;
   });
-
-  // Table border + column dividers
   doc.setDrawColor(160,160,160);doc.setLineWidth(0.3);
   doc.rect(x+2,tblTopY,w-4,cy-tblTopY-0.5);
   cX.slice(1).forEach(tx=>doc.line(tx,tblTopY,tx,cy-0.5));
   cy+=PAD_MID;
 
-  // ── Pass / Fail badge — larger, prominent ─────────────────────────
+  // ── Pass / Fail badge — text only, no icon, centered ─────────────
   const pf_x=x+w*0.15,pf_y=cy,pf_w=w*0.70,pf_h=PASSFAIL_H;
   const pf_cx=pf_x+pf_w/2;
-  const pf_icon_x=pf_x+7,pf_icon_cy=pf_y+pf_h/2;
-  const pf_font=Math.min(14,Math.max(11,PASSFAIL_H*0.85));
-
+  const pf_font=Math.min(13,Math.max(10,PASSFAIL_H*0.85));
   if(indivPass){
     doc.setFillColor(214,244,223);doc.roundedRect(pf_x,pf_y,pf_w,pf_h,3,3,'F');
     doc.setDrawColor(26,122,71);doc.setLineWidth(0.8);doc.roundedRect(pf_x,pf_y,pf_w,pf_h,3,3,'S');
-    // Checkmark icon
-    doc.setDrawColor(26,122,71);doc.setLineWidth(1.6);
-    doc.line(pf_icon_x,pf_icon_cy+0.5,pf_icon_x+2.2,pf_icon_cy+2.8);
-    doc.line(pf_icon_x+2.2,pf_icon_cy+2.8,pf_icon_x+6,pf_icon_cy-2);
     doc.setTextColor(26,122,71);doc.setFontSize(pf_font);doc.setFont('helvetica','bold');
-    doc.text('PASS',pf_cx+3,pf_y+pf_h*0.67,{align:'center'});
+    doc.text('PASS',pf_cx,pf_y+pf_h*0.67,{align:'center'});
   }else{
     doc.setFillColor(253,228,228);doc.roundedRect(pf_x,pf_y,pf_w,pf_h,3,3,'F');
     doc.setDrawColor(192,57,43);doc.setLineWidth(0.8);doc.roundedRect(pf_x,pf_y,pf_w,pf_h,3,3,'S');
-    // X icon
-    doc.setDrawColor(192,57,43);doc.setLineWidth(1.6);
-    doc.line(pf_icon_x,pf_icon_cy-2.5,pf_icon_x+5,pf_icon_cy+2.5);
-    doc.line(pf_icon_x+5,pf_icon_cy-2.5,pf_icon_x,pf_icon_cy+2.5);
     doc.setTextColor(192,57,43);doc.setFontSize(pf_font);doc.setFont('helvetica','bold');
-    doc.text('FAIL',pf_cx+3,pf_y+pf_h*0.67,{align:'center'});
+    doc.text('FAIL',pf_cx,pf_y+pf_h*0.67,{align:'center'});
+  }
+  cy+=PASSFAIL_H;
+
+  // ── Grade Subjects section — fills the space above signatures ─────
+  if(gradeKeys.length>0){
+    cy+=GRADE_GAP;
+    // Section header bar
+    doc.setFillColor(37,61,120);doc.rect(x+2,cy,w-4,GRADE_HDR_H,'F');
+    doc.setTextColor(255,255,255);doc.setFontSize(6.5);doc.setFont('helvetica','bold');
+    doc.text('CO-CURRICULAR & ACTIVITY GRADES',x+w/2,cy+GRADE_HDR_H*0.68,{align:'center'});
+    cy+=GRADE_HDR_H;
+    // Two-column table: subject name | grade
+    const gW_sub=(w-4)*0.76,gW_grd=(w-4)*0.24;
+    const gXs=[x+2,x+2+gW_sub];
+    const gradeTableTop=cy;
+    gradeKeys.forEach((subName,gi)=>{
+      doc.setFillColor(...(gi%2===0?[255,255,255]:[243,247,254]));
+      doc.rect(x+2,cy,w-4,GRADE_ROW_H,'F');
+      doc.setTextColor(30,30,30);doc.setFontSize(6.5);doc.setFont('helvetica','normal');
+      // Fit subject name; truncate if needed
+      const splitName=doc.splitTextToSize(subName,gW_sub-4);
+      const dispName=splitName[0]+(splitName.length>1?'\u2026':'');
+      doc.text(dispName,gXs[0]+2,cy+GRADE_ROW_H*0.68);
+      doc.setFont('helvetica','bold');doc.setFontSize(7);
+      doc.text(String(gradeData[subName]||'\u2014'),gXs[1]+gW_grd/2,cy+GRADE_ROW_H*0.68,{align:'center'});
+      cy+=GRADE_ROW_H;
+    });
+    // Table border + column divider
+    doc.setDrawColor(160,160,160);doc.setLineWidth(0.3);
+    doc.rect(x+2,gradeTableTop,w-4,cy-gradeTableTop);
+    doc.line(gXs[1],gradeTableTop,gXs[1],cy);
   }
 
   // ── Signature block — bottom-anchored ─────────────────────────────
-  const sigAreaY = y+h-SIG_H;
+  const sigAreaY=y+h-SIG_H;
   doc.setDrawColor(200);doc.setLineWidth(0.3);
-  doc.line(x+2,sigAreaY+2,x+w-2,sigAreaY+2); // divider line
+  doc.line(x+2,sigAreaY+2,x+w-2,sigAreaY+2);
   const sigFontSz=Math.min(8.5,Math.max(6.5,ROW_H*0.58));
   const sigLineY=sigAreaY+SIG_H*0.45;
   const sigLabelY=sigAreaY+SIG_H*0.72;
-  // Left signature
   doc.setDrawColor(120);doc.setLineWidth(0.4);
   doc.line(x+6,sigLineY,x+w*0.44,sigLineY);
-  // Right signature
   doc.line(x+w*0.56,sigLineY,x+w-6,sigLineY);
   doc.setTextColor(80);doc.setFontSize(sigFontSz);doc.setFont('helvetica','normal');
   doc.text('Class Teacher',x+w*0.25,sigLabelY,{align:'center'});
@@ -1962,12 +2092,12 @@ function generateConsolidatedPDF(){
       doc.setFillColor(214,244,223);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'F');
       doc.setDrawColor(26,122,71);doc.setLineWidth(0.7);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'S');
       doc.setTextColor(26,122,71);doc.setFontSize(10);doc.setFont('helvetica','bold');
-      doc.text('✓  PASS',rf_x+rf_w/2,cy+6.8,{align:'center'});
+      doc.text('PASS',rf_x+rf_w/2,cy+6.8,{align:'center'});
     }else{
       doc.setFillColor(253,228,228);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'F');
       doc.setDrawColor(192,57,43);doc.setLineWidth(0.7);doc.roundedRect(rf_x,cy,rf_w,10,2,2,'S');
       doc.setTextColor(192,57,43);doc.setFontSize(10);doc.setFont('helvetica','bold');
-      doc.text('✗  FAIL',rf_x+rf_w/2,cy+6.8,{align:'center'});
+      doc.text('FAIL',rf_x+rf_w/2,cy+6.8,{align:'center'});
     }
     cy+=13;
     // Summary line
@@ -1975,6 +2105,37 @@ function generateConsolidatedPDF(){
     doc.text(`Grand Total: ${sr.gt} / 600`,MARGIN+5,cy+5);
     doc.text(`Percentage: ${sr.pc}%`,MARGIN+70,cy+5);
     if(sr.rank)doc.text(`Rank: ${sr.rank}`,MARGIN+140,cy+5);
+    // Grade Subjects section (if uploaded) — fills space above signatures
+    const gradeDataC=state.gradeSubjects?.[sr.roll]||{};
+    const gradeKeysC=Object.keys(gradeDataC).filter(k=>gradeDataC[k]&&String(gradeDataC[k]).trim());
+    if(gradeKeysC.length>0){
+      cy+=8;
+      const G_HDR=8,G_ROW=7;
+      // Section header
+      doc.setFillColor(37,61,120);doc.rect(MARGIN,cy,CW,G_HDR,'F');
+      doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+      doc.text('CO-CURRICULAR & ACTIVITY GRADES',PW/2,cy+5.5,{align:'center'});
+      cy+=G_HDR;
+      // Two-column table: subject name | grade
+      const gSubW=CW*0.72,gGrdW=CW*0.28;
+      const gColX=[MARGIN,MARGIN+gSubW];
+      const gradeTblTop=cy;
+      gradeKeysC.forEach((subName,gi)=>{
+        doc.setFillColor(...(gi%2===0?[255,255,255]:[243,247,254]));
+        doc.rect(MARGIN,cy,CW,G_ROW,'F');
+        doc.setFontSize(7.5);doc.setFont('helvetica','normal');doc.setTextColor(30,30,30);
+        doc.text(subName,gColX[0]+2,cy+G_ROW*0.65);
+        doc.setFont('helvetica','bold');
+        doc.text(String(gradeDataC[subName]||'—'),gColX[1]+gGrdW/2,cy+G_ROW*0.65,{align:'center'});
+        doc.setFont('helvetica','normal');
+        cy+=G_ROW;
+      });
+      doc.setDrawColor(160);doc.setLineWidth(0.3);
+      doc.rect(MARGIN,gradeTblTop,CW,cy-gradeTblTop);
+      doc.line(gColX[1],gradeTblTop,gColX[1],cy);
+      cy+=4;
+    }
+
     // Signatures
     const sigY=PH-MARGIN-18;
     doc.setDrawColor(200);doc.setLineWidth(0.3);doc.line(MARGIN,sigY,PW-MARGIN,sigY);
