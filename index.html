@@ -2031,6 +2031,7 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
   doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
   doc.text('Roll No. :',ox+2,cy+5.4);
   doc.setFont('helvetica','normal');doc.text(String(sr.roll),ox+21,cy+5.4);
+  if(sr.name){doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);doc.text(String(sr.name),ox+SW/2,cy+5.4,{align:'center'});}
   const ir=[state.className?'Std: '+state.className:'',state.sectionName?'Div: '+state.sectionName:'',state.academicYear?'Year: '+state.academicYear:''].filter(Boolean).join('   ');
   if(ir){doc.setFontSize(6.5);doc.setFont('helvetica','normal');doc.setTextColor(50,50,90);doc.text(ir,ox+SW-2,cy+5.4,{align:'right'});}
   cy+=INFO_H+1.5;
