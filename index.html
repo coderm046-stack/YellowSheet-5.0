@@ -2097,6 +2097,7 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
     doc.setFont('helvetica','normal');doc.setTextColor(15,15,15);
     const maxCh=Math.floor(subjectColW/1.85);
     doc.text(displayName.length>maxCh?displayName.substring(0,maxCh-1)+'…':displayName,colX[1]+1.5,midY);
+    doc.setFontSize(10);
     [ut1,ft,ut2,ann,intM,tot200].forEach((v,vi)=>doc.text(v>0?String(v):'—',colX[vi+2]+colW[vi+2]/2,midY,{align:'center'}));
     doc.setFont('helvetica','bold');
     doc.setTextColor(avg>0&&avg<35?192:13,avg>0&&avg<35?57:50,avg>0&&avg<35?43:100);
@@ -2115,6 +2116,7 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
     doc.setFont('helvetica','normal');doc.setTextColor(15,15,15);
     const maxCh=Math.floor(subjectColW/1.85);
     doc.text(subName.length>maxCh?subName.substring(0,maxCh-1)+'…':subName,colX[1]+1.5,midY);
+    doc.setFontSize(10);
     for(let ci=2;ci<=7;ci++)doc.text('—',colX[ci]+colW[ci]/2,midY,{align:'center'});
     doc.setFont('helvetica','bold');doc.setTextColor(37,61,120);
     doc.text(String(gradeDataC[subName]||'—'),colX[8]+colW[8]/2,midY,{align:'center'});
@@ -2127,6 +2129,7 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
   const totMidY=cy+TOTAL_ROW_H*0.67;
   doc.setFontSize(6);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
   doc.text('Total',colX[0]+colW[0]/2,totMidY,{align:'center'});
+  doc.setFontSize(10);
   [colTot.ut1,colTot.ft,colTot.ut2,colTot.ann,colTot.intM,colTot.t200].forEach((v,vi)=>
     doc.text(v>0?String(Math.round(v)):'—',colX[vi+2]+colW[vi+2]/2,totMidY,{align:'center'}));
   doc.text(String(Math.round(colTot.avg)),colX[8]+colW[8]/2,totMidY,{align:'center'});
@@ -2154,7 +2157,7 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
     const lY=cy+SUM_ROW_H*0.67;
     doc.setFontSize(row.fs||7);doc.setFont('helvetica','bold');doc.setTextColor(...row.color);
     doc.text(row.label,colX[1]+1.5,lY);
-    doc.setFont('helvetica',row.bold?'bold':'normal');
+    doc.setFontSize((row.fs||7)+4);doc.setFont('helvetica',row.bold?'bold':'normal');
     doc.text(String(row.value),colX[2]+1.5,lY);
     doc.setTextColor(15,15,15);
     cy+=SUM_ROW_H;
