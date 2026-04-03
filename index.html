@@ -547,7 +547,8 @@ const state={
   schoolName:'',className:'',sectionName:'',academicYear:'',uploadMode:'full',singleExamType:'',
   letterheadDataUrl:null,letterheadFormat:'PNG',
   appIconDataUrl:null,appIconFormat:'PNG',
-  gradeSubjects:{},gradeSubjectCols:[]
+  gradeSubjects:{},gradeSubjectCols:[],
+  pdfLayout:'legal'
 };
 
 // ── Pre-load app icon for PDF use ──
@@ -1033,7 +1034,7 @@ function handleGradeSubjectsFile(file){
       const firstRow=rows[0];
       const allKeys=Object.keys(firstRow);
       const rollKey=allKeys.find(k=>/roll\s*no/i.test(k)||k.toUpperCase()==='ROLL NO.')||allKeys[0];
-      const subjectCols=allKeys.filter(k=>k!==rollKey&&!(/roll/i.test(k)&&/no/i.test(k)));
+      const subjectCols=allKeys.filter(k=>k!==rollKey&&!(/roll/i.test(k)&&/no/i.test(k))&&!/^student\s*name$/i.test(k.trim())&&!/^name$/i.test(k.trim()));
       if(!subjectCols.length){toast('No grade subject columns found — check column headers','error');return;}
       state.gradeSubjects={};
       state.gradeSubjectCols=subjectCols;
@@ -1134,6 +1135,46 @@ function generateReport(){
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// SUBJECT-WISE PASS % SUMMARY
+// ═══════════════════════════════════════════════════════════════════════
+function buildSubjectPassSummaryHtml(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const rows=mc.map((abbr,idx)=>{
+    const[sname,,,scode]=cfg.subjects[abbr]||[abbr];
+    const displayName=scode?`${sname} (${scode})`:sname;
+    const appeared=state.studentResults.filter(sr=>sr.subj6.includes(abbr)).length;
+    const pass=state.studentResults.filter(sr=>sr.subj6.includes(abbr)&&(sr.a100[abbr]||0)>=35).length;
+    const failed=appeared-pass;
+    const pct=appeared>0?(pass/appeared*100).toFixed(1):'0.0';
+    const pctNum=parseFloat(pct);
+    const pctColor=pctNum>=75?'var(--success)':pctNum>=50?'#c07000':'var(--danger)';
+    return`<tr>
+      <td style="text-align:center"><strong>${idx+1}</strong></td>
+      <td><strong>${displayName}</strong></td>
+      <td style="text-align:center">${appeared}</td>
+      <td style="text-align:center;color:var(--success);font-weight:700">${pass}</td>
+      <td style="text-align:center;color:var(--danger);font-weight:700">${failed}</td>
+      <td style="text-align:center;font-weight:700;color:${pctColor}">${pct}%</td>
+    </tr>`;
+  }).join('');
+  return`<div class="card">
+    <div class="card-title">📊 Subject-Wise Pass % Summary</div>
+    <div class="card-sub">Based on final average marks /100 per subject. Pass mark = 35. Pass % colour: <span style="color:var(--success);font-weight:600">≥ 75%</span> · <span style="color:#c07000;font-weight:600">50–74%</span> · <span style="color:var(--danger);font-weight:600">&lt; 50%</span>.</div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="text-align:center;width:60px">Sr. No.</th>
+        <th>Subject</th>
+        <th style="text-align:center">Appeared</th>
+        <th style="text-align:center">Pass</th>
+        <th style="text-align:center">Failed</th>
+        <th style="text-align:center">Pass %</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // RENDER REPORT
 // ═══════════════════════════════════════════════════════════════════════
 function renderReport(){
@@ -1184,6 +1225,7 @@ function renderReport(){
           <th>%</th><th>Result</th><th>Rank</th></tr></thead>
         <tbody>${rows}</tbody></table></div>
     </div>
+    ${buildSubjectPassSummaryHtml()}
     <div class="card">
       <div class="card-title">📄 Generate PDF Result Slips</div>
       <div class="card-sub">Slips include your letterhead / school name, class, section and faculty on every page. Select exam(s) below.</div>
@@ -1192,6 +1234,12 @@ function renderReport(){
           <input type="checkbox" value="CONSOLIDATED" onchange="this.closest('label').classList.toggle('checked',this.checked)">
           🏆 Consolidated (All Exams + Internal)
         </label>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin:12px 0 4px;flex-wrap:wrap">
+        <span style="font-size:.82rem;font-weight:600;color:var(--navy)">📐 Consolidated Layout:</span>
+        <button id="layout-btn-legal" class="btn ${state.pdfLayout!=='letter'?'btn-primary':'btn-outline'}" onclick="setPdfLayout('legal')" style="padding:6px 16px;font-size:.80rem">Legal — 2 cards / page</button>
+        <button id="layout-btn-letter" class="btn ${state.pdfLayout==='letter'?'btn-primary':'btn-outline'}" onclick="setPdfLayout('letter')" style="padding:6px 16px;font-size:.80rem">Letter — 1 card / page (larger print)</button>
+        <span style="font-size:.76rem;color:var(--text-muted);margin-left:4px" id="layout-hint">${state.pdfLayout==='letter'?'Letter portrait · 1 card/page · fonts ~1.2× larger':'Legal landscape · 2 cards/page · compact'}</span>
       </div>
       <div class="actions-row" style="margin:16px 0 0">
         <button class="btn btn-primary btn-lg" onclick="generatePDFs()">📄 Generate &amp; Download PDFs</button>
@@ -1212,7 +1260,7 @@ function startOver(){
   state.reportGenerated=false;state.studentResults=[];
   state.schoolName='';state.className='';state.sectionName='';state.academicYear='';
   state.letterheadDataUrl=null;state.letterheadFormat='PNG';
-  state.uploadMode='full';state.singleExamType='';
+  state.uploadMode='full';state.singleExamType='';state.pdfLayout='legal';
   // Reset UI inputs
   document.getElementById('file-badge-container').innerHTML='';
   document.getElementById('btn-step1-next').disabled=true;
@@ -1432,7 +1480,8 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
 
   // Grade subjects for this student
   const gradeData=state.gradeSubjects?.[sr.roll]||{};
-  const gradeKeys=Object.keys(gradeData).filter(k=>gradeData[k]&&String(gradeData[k]).trim());
+  const SKIP_META=['STUDENT NAME','NAME','ROLL NO','ROLL NO.','ROLL','ROLL NUMBER'];
+  const gradeKeys=Object.keys(gradeData).filter(k=>gradeData[k]&&String(gradeData[k]).trim()&&!SKIP_META.includes(k.trim().toUpperCase()));
 
   // ── Outer border ────────────────────────────────────────────────────
   doc.setDrawColor(13,27,56);doc.setLineWidth(0.6);
@@ -1510,7 +1559,7 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
   const totalHDR=HDR_H+INFO_BAND_H+EXAM_BAND_H;
   const CONTENT_TOP=y+totalHDR;
   const PAD_TOP=3;
-  const ROLL_H=12;
+  const ROLL_H=8;
   const PASSFAIL_H=13;
   const SIG_H=20;
   const TABLE_HDR=9;
@@ -1533,32 +1582,11 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
 
   let cy=CONTENT_TOP+PAD_TOP;
 
-  // ── Roll / Name row ──────────────────────────────────────────────
+  // ── Roll No. row ─────────────────────────────────────────────────
   doc.setTextColor(30,30,30);
   doc.setFontSize(rollFontSz);doc.setFont('helvetica','bold');
   doc.text('Roll No.:',x+3,cy+rollFontSz*0.35+1);
   doc.setFont('helvetica','normal');doc.text(String(sr.roll),x+24,cy+rollFontSz*0.35+1);
-  doc.setFont('helvetica','bold');doc.text('Name:',x+w*0.38,cy+rollFontSz*0.35+1);
-  doc.setFont('helvetica','normal');
-  const nameX=x+w*0.38+14;
-  const nameAvailW=w-(w*0.38+14)-4;
-  let nameFontSz=rollFontSz;
-  doc.setFontSize(nameFontSz);
-  while(nameFontSz>5.5){
-    const tw=doc.getStringUnitWidth(sr.name)*nameFontSz/doc.internal.scaleFactor;
-    if(tw<=nameAvailW)break;
-    nameFontSz-=0.4;
-    doc.setFontSize(nameFontSz);
-  }
-  const finalTW=doc.getStringUnitWidth(sr.name)*nameFontSz/doc.internal.scaleFactor;
-  if(finalTW>nameAvailW){
-    const nameLines=doc.splitTextToSize(sr.name,nameAvailW);
-    const lineH=nameFontSz*0.42;
-    doc.text(nameLines[0],nameX,cy+rollFontSz*0.35+1-lineH*0.4);
-    if(nameLines[1])doc.text(nameLines[1],nameX,cy+rollFontSz*0.35+1+lineH*0.9);
-  }else{
-    doc.text(sr.name,nameX,cy+rollFontSz*0.35+1);
-  }
   doc.setFontSize(rollFontSz);
   cy+=ROLL_H-3;
   doc.setDrawColor(13,27,56);doc.setLineWidth(0.5);
@@ -1999,79 +2027,95 @@ function buildToppersHtmlForExam(examLabel,ec,mode){
 
 // ═══════════════════════════════════════════════════════════════════════
 // HELPER — draw one student result card within a bounding slot
+// All measurements auto-scale from slot width so Letter (SW≈200mm)
+// gets ~1.2× bigger fonts, column widths and row heights vs Legal (SW≈167mm).
 // ═══════════════════════════════════════════════════════════════════════
 function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
+  // Scale factor: Legal-2up slot width ≈ 166.8 mm = 1.0 baseline
+  const scale=SW/166.8;
   let cy=oy;
 
   // ── Header ──
   if(state.letterheadDataUrl){
-    try{doc.addImage(state.letterheadDataUrl,state.letterheadFormat,ox,cy,SW,15,'','FAST');cy+=15;}catch(e){}
-    doc.setFillColor(13,27,56);doc.rect(ox,cy,SW,5.5,'F');
+    const LH_H=15*scale;
+    try{doc.addImage(state.letterheadDataUrl,state.letterheadFormat,ox,cy,SW,LH_H,'','FAST');cy+=LH_H;}catch(e){}
+    const IB_H=5.5*scale;
+    doc.setFillColor(13,27,56);doc.rect(ox,cy,SW,IB_H,'F');
     const ip=[state.className?'Class '+state.className+(state.sectionName?' – Sec. '+state.sectionName:''):'',state.faculty?state.faculty+' Faculty':'',state.academicYear||''].filter(Boolean).join('  |  ');
-    doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(245,193,88);
-    doc.text(ip,ox+SW/2,cy+3.8,{align:'center'});cy+=5.5;
-    doc.setFillColor(37,61,120);doc.rect(ox,cy,SW,7.5,'F');
-    doc.setTextColor(255,255,255);doc.setFontSize(11);doc.setFont('helvetica','bold');
-    doc.text('RESULT CARD',ox+SW/2,cy+5.2,{align:'center'});cy+=7.5;
+    doc.setFontSize(7*scale);doc.setFont('helvetica','bold');doc.setTextColor(245,193,88);
+    doc.text(ip,ox+SW/2,cy+IB_H*0.69,{align:'center'});cy+=IB_H;
+    const RC_H=7.5*scale;
+    doc.setFillColor(37,61,120);doc.rect(ox,cy,SW,RC_H,'F');
+    doc.setTextColor(255,255,255);doc.setFontSize(11*scale);doc.setFont('helvetica','bold');
+    doc.text('RESULT CARD',ox+SW/2,cy+RC_H*0.69,{align:'center'});cy+=RC_H;
   }else{
-    doc.setFillColor(13,27,56);doc.rect(ox,cy,SW,20,'F');
-    if(state.schoolName){doc.setFontSize(9.5);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);doc.text(state.schoolName,ox+SW/2,cy+6.5,{align:'center'});}
+    const HDR_H=20*scale;
+    doc.setFillColor(13,27,56);doc.rect(ox,cy,SW,HDR_H,'F');
+    if(state.schoolName){doc.setFontSize(9.5*scale);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);doc.text(state.schoolName,ox+SW/2,cy+HDR_H*0.325,{align:'center'});}
     const ip=[state.className?'Class '+state.className+(state.sectionName?' – '+state.sectionName:''):'',state.faculty?state.faculty+' Faculty':'',state.academicYear||''].filter(Boolean).join('  ·  ');
-    doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
-    if(ip)doc.text(ip,ox+SW/2,cy+12,{align:'center'});
-    doc.setFontSize(11);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
-    doc.text('RESULT CARD',ox+SW/2,cy+17.5,{align:'center'});cy+=20;
+    doc.setFontSize(7*scale);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
+    if(ip)doc.text(ip,ox+SW/2,cy+HDR_H*0.6,{align:'center'});
+    doc.setFontSize(11*scale);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+    doc.text('RESULT CARD',ox+SW/2,cy+HDR_H*0.875,{align:'center'});cy+=HDR_H;
   }
-  cy+=1.5;
+  cy+=1.5*scale;
 
   // ── Roll No. info row ──
-  const INFO_H=8;
+  const INFO_H=8*scale;
   doc.setFillColor(243,247,254);doc.rect(ox,cy,SW,INFO_H,'F');
   doc.setDrawColor(160);doc.setLineWidth(0.35);doc.rect(ox,cy,SW,INFO_H);
-  doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
-  doc.text('Roll No. :',ox+2,cy+5.4);
-  doc.setFont('helvetica','normal');doc.text(String(sr.roll),ox+21,cy+5.4);
-  if(sr.name){doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);doc.text(String(sr.name),ox+SW/2,cy+5.4,{align:'center'});}
+  doc.setFontSize(7.5*scale);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+  doc.text('Roll No. :',ox+2*scale,cy+INFO_H*0.675);
+  doc.setFont('helvetica','normal');doc.text(String(sr.roll),ox+21*scale,cy+INFO_H*0.675);
+  // ── Student name — centred in the info row ──
+  if(sr.name){
+    doc.setFontSize(9*scale);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+    doc.text(String(sr.name),ox+SW/2,cy+INFO_H*0.675,{align:'center'});
+  }
   const ir=[state.className?'Std: '+state.className:'',state.sectionName?'Div: '+state.sectionName:'',state.academicYear?'Year: '+state.academicYear:''].filter(Boolean).join('   ');
-  if(ir){doc.setFontSize(6.5);doc.setFont('helvetica','normal');doc.setTextColor(50,50,90);doc.text(ir,ox+SW-2,cy+5.4,{align:'right'});}
-  cy+=INFO_H+1.5;
+  if(ir){doc.setFontSize(6.5*scale);doc.setFont('helvetica','normal');doc.setTextColor(50,50,90);doc.text(ir,ox+SW-2*scale,cy+INFO_H*0.675,{align:'right'});}
+  cy+=INFO_H+1.5*scale;
 
-  // ── Column widths — fixed cols + subject col fills remainder ──
-  // Fixed: Sr(7)+UT1(12)+Term(13)+UT2(12)+Ann(15)+Int(15)+Tot200(17)+Avg100(18) = 109
-  const fixedOther=7+12+13+12+15+15+17+18; // 109
-  const subjectColW=SW-fixedOther;
-  const colW=[7,subjectColW,12,13,12,15,15,17,18];
+  // ── Column widths — all proportionally scaled ──
+  // Base (scale=1): Sr=7, UT1=12, Term=13, UT2=12, Ann=15, Int=15, Tot200=17, Avg100=18 → fixed=109
+  const baseFixed=[7,12,13,12,15,15,17,18];
+  const scaledFixed=baseFixed.map(v=>v*scale);
+  const fixedOtherScaled=scaledFixed.reduce((a,b)=>a+b,0);
+  const subjectColW=SW-fixedOtherScaled;
+  const colW=[scaledFixed[0],subjectColW,...scaledFixed.slice(1)];
   const colX=[ox];
   for(let i=0;i<colW.length-1;i++)colX.push(colX[colX.length-1]+colW[i]);
 
   // ── Two-row table header ──
-  const HDR1_H=7,HDR2_H=5;
+  const HDR1_H=7*scale,HDR2_H=5*scale;
   const tblStartY=cy;
 
   doc.setFillColor(13,27,56);doc.rect(ox,cy,SW,HDR1_H,'F');
-  doc.setFontSize(6);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
+  doc.setFontSize(6*scale);doc.setFont('helvetica','bold');doc.setTextColor(255,255,255);
   [['Sr.','No.'],['SUBJECT',null],['1st Unit','Test'],['1st Term','Exam'],['2nd Unit','Test'],['Annual','Exam'],['Internal/','Pract.'],['Total','Marks'],['Avg.','Marks']].forEach(([l1,l2],i)=>{
-    if(l2){doc.text(l1,colX[i]+colW[i]/2,cy+2.8,{align:'center'});doc.text(l2,colX[i]+colW[i]/2,cy+6.1,{align:'center'});}
-    else{doc.text(l1,colX[i]+colW[i]/2,cy+HDR1_H/2+1,{align:'center'});}
+    if(l2){doc.text(l1,colX[i]+colW[i]/2,cy+HDR1_H*0.4,{align:'center'});doc.text(l2,colX[i]+colW[i]/2,cy+HDR1_H*0.87,{align:'center'});}
+    else{doc.text(l1,colX[i]+colW[i]/2,cy+HDR1_H*0.5+scale,{align:'center'});}
   });
   cy+=HDR1_H;
 
   doc.setFillColor(37,61,120);doc.rect(ox,cy,SW,HDR2_H,'F');
-  doc.setFontSize(5.5);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
+  doc.setFontSize(5.5*scale);doc.setFont('helvetica','normal');doc.setTextColor(245,193,88);
   ['','','Out of 25','Out of 50','Out of 25','Out of 70/80','Out of 20/30','Out of 200','Out of 100'].forEach((h,i)=>{
-    if(h)doc.text(h,colX[i]+colW[i]/2,cy+3.5,{align:'center'});
+    if(h)doc.text(h,colX[i]+colW[i]/2,cy+HDR2_H*0.7,{align:'center'});
   });
   cy+=HDR2_H;
 
-  // ── Compute dynamic row height ──
+  // ── Compute dynamic row height — no fixed cap, freely fills available space ──
   const subjs=mc.filter(a=>sr.subj6.includes(a));
   const gradeDataC=state.gradeSubjects?.[sr.roll]||{};
-  const gradeKeysC=Object.keys(gradeDataC).filter(k=>gradeDataC[k]&&String(gradeDataC[k]).trim());
+  const SKIP_META_C=['STUDENT NAME','NAME','ROLL NO','ROLL NO.','ROLL','ROLL NUMBER'];
+  const gradeKeysC=Object.keys(gradeDataC).filter(k=>gradeDataC[k]&&String(gradeDataC[k]).trim()&&!SKIP_META_C.includes(k.trim().toUpperCase()));
   const actualRows=subjs.length+gradeKeysC.length;
-  const TOTAL_ROW_H=6.5,SUM_ROW_H=6,SUMMARY_COUNT=4,SIG_H=13;
+  const TOTAL_ROW_H=6.5*scale,SUM_ROW_H=6*scale,SUMMARY_COUNT=4,SIG_H=13*scale;
   const usedBelow=TOTAL_ROW_H+(SUMMARY_COUNT*SUM_ROW_H)+SIG_H;
   const availForRows=(oy+SH)-cy-usedBelow;
-  const ROW_H=Math.min(15,Math.max(7,availForRows/Math.max(actualRows,1)));
+  // Remove upper cap so Letter cards use all the vertical space available
+  const ROW_H=Math.max(7*scale,availForRows/Math.max(actualRows,1));
 
   // ── Subject rows ──
   let rowIdx=0;
@@ -2092,12 +2136,13 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
     doc.setFillColor(...(rowIdx%2===0?[255,255,255]:[238,246,255]));
     doc.rect(ox,cy,SW,ROW_H,'F');
     const midY=cy+ROW_H*0.64;
-    doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);
+    doc.setFontSize(7.5*scale);doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);
     doc.text(String(rowIdx+1),colX[0]+colW[0]/2,midY,{align:'center'});
-    doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(15,15,15);
-    const maxCh=Math.floor(subjectColW/2.16);
-    doc.text(displayName.length>maxCh?displayName.substring(0,maxCh-1)+'…':displayName,colX[1]+1.5,midY);
-    doc.setFontSize(10);
+    doc.setFontSize(7*scale);doc.setFont('helvetica','normal');doc.setTextColor(15,15,15);
+    // Truncation: character width scales with font size AND with scale factor
+    const maxCh=Math.floor(subjectColW/(2.16*scale));
+    doc.text(displayName.length>maxCh?displayName.substring(0,maxCh-1)+'…':displayName,colX[1]+1.5*scale,midY);
+    doc.setFontSize(10*scale);
     [ut1,ft,ut2,ann,intM,tot200].forEach((v,vi)=>doc.text(v>0?String(v):'—',colX[vi+2]+colW[vi+2]/2,midY,{align:'center'}));
     doc.setFont('helvetica','bold');
     doc.setTextColor(avg>0&&avg<35?192:13,avg>0&&avg<35?57:50,avg>0&&avg<35?43:100);
@@ -2111,12 +2156,12 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
     doc.setFillColor(...(rowIdx%2===0?[255,255,255]:[238,246,255]));
     doc.rect(ox,cy,SW,ROW_H,'F');
     const midY=cy+ROW_H*0.64;
-    doc.setFontSize(7.5);doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);
+    doc.setFontSize(7.5*scale);doc.setFont('helvetica','bold');doc.setTextColor(60,60,60);
     doc.text(String(rowIdx+1),colX[0]+colW[0]/2,midY,{align:'center'});
-    doc.setFontSize(7);doc.setFont('helvetica','normal');doc.setTextColor(15,15,15);
-    const maxCh=Math.floor(subjectColW/2.16);
-    doc.text(subName.length>maxCh?subName.substring(0,maxCh-1)+'…':subName,colX[1]+1.5,midY);
-    doc.setFontSize(10);
+    doc.setFontSize(7*scale);doc.setFont('helvetica','normal');doc.setTextColor(15,15,15);
+    const maxCh=Math.floor(subjectColW/(2.16*scale));
+    doc.text(subName.length>maxCh?subName.substring(0,maxCh-1)+'…':subName,colX[1]+1.5*scale,midY);
+    doc.setFontSize(10*scale);
     for(let ci=2;ci<=7;ci++)doc.text('—',colX[ci]+colW[ci]/2,midY,{align:'center'});
     doc.setFont('helvetica','bold');doc.setTextColor(37,61,120);
     doc.text(String(gradeDataC[subName]||'—'),colX[8]+colW[8]/2,midY,{align:'center'});
@@ -2127,9 +2172,9 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
   // ── Column Totals row ──
   doc.setFillColor(210,228,248);doc.rect(ox,cy,SW,TOTAL_ROW_H,'F');
   const totMidY=cy+TOTAL_ROW_H*0.67;
-  doc.setFontSize(7);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+  doc.setFontSize(7*scale);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
   doc.text('Total',colX[0]+colW[0]/2,totMidY,{align:'center'});
-  doc.setFontSize(10);
+  doc.setFontSize(10*scale);
   [colTot.ut1,colTot.ft,colTot.ut2,colTot.ann,colTot.intM,colTot.t200].forEach((v,vi)=>
     doc.text(v>0?String(Math.round(v)):'—',colX[vi+2]+colW[vi+2]/2,totMidY,{align:'center'}));
   doc.text(String(Math.round(colTot.avg)),colX[8]+colW[8]/2,totMidY,{align:'center'});
@@ -2155,10 +2200,10 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
   summaryRows.forEach(row=>{
     doc.setFillColor(...row.bg);doc.rect(ox,cy,SW,SUM_ROW_H,'F');
     const lY=cy+SUM_ROW_H*0.67;
-    doc.setFontSize((row.fs||7)+2);doc.setFont('helvetica','bold');doc.setTextColor(...row.color);
-    doc.text(row.label,colX[1]+1.5,lY);
-    doc.setFontSize((row.fs||7)+4);doc.setFont('helvetica',row.bold?'bold':'normal');
-    doc.text(String(row.value),colX[2]+1.5,lY);
+    doc.setFontSize(((row.fs||7)+2)*scale);doc.setFont('helvetica','bold');doc.setTextColor(...row.color);
+    doc.text(row.label,colX[1]+1.5*scale,lY);
+    doc.setFontSize(((row.fs||7)+4)*scale);doc.setFont('helvetica',row.bold?'bold':'normal');
+    doc.text(String(row.value),colX[2]+1.5*scale,lY);
     doc.setTextColor(15,15,15);
     cy+=SUM_ROW_H;
   });
@@ -2171,28 +2216,34 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
   // ── Signatures — anchored to slot bottom ──
   const sigY=oy+SH-SIG_H;
   doc.setDrawColor(150);doc.setLineWidth(0.25);doc.line(ox,sigY,ox+SW,sigY);
-  doc.setFontSize(8);doc.setTextColor(13,27,56);doc.setFont('helvetica','normal');
+  doc.setFontSize(8*scale);doc.setTextColor(13,27,56);doc.setFont('helvetica','normal');
   const q=SW/3;
-  doc.line(ox+q*0-q*0.1+4,sigY+7,ox+q*0+q*0.9-4,sigY+7);
-  doc.text('Class Teacher',ox+q*0.4,sigY+10.5,{align:'center'});
-  doc.line(ox+q*1+4,sigY+7,ox+q*2-4,sigY+7);
-  doc.text('Parent / Guardian',ox+q*1.5,sigY+10.5,{align:'center'});
-  doc.line(ox+q*2+4,sigY+7,ox+q*3-4,sigY+7);
-  doc.text('Principal / H.M.',ox+q*2.5,sigY+10.5,{align:'center'});
+  doc.line(ox+q*0-q*0.1+4*scale,sigY+7*scale,ox+q*0+q*0.9-4*scale,sigY+7*scale);
+  doc.text('Class Teacher',ox+q*0.4,sigY+10.5*scale,{align:'center'});
+  doc.line(ox+q*1+4*scale,sigY+7*scale,ox+q*2-4*scale,sigY+7*scale);
+  doc.text('Parent / Guardian',ox+q*1.5,sigY+10.5*scale,{align:'center'});
+  doc.line(ox+q*2+4*scale,sigY+7*scale,ox+q*3-4*scale,sigY+7*scale);
+  doc.text('Principal / H.M.',ox+q*2.5,sigY+10.5*scale,{align:'center'});
   doc.setTextColor(15,15,15);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// CONSOLIDATED PDF — 2 students per page, Landscape Legal
+// CONSOLIDATED PDF — branching on state.pdfLayout
 // ═══════════════════════════════════════════════════════════════════════
 function generateConsolidatedPDF(){
+  if(state.pdfLayout==='letter'){generateConsolidatedPDFLetter();return;}
+  generateConsolidatedPDFLegal();
+}
+
+// Legal landscape — 2 students per page, slot width ≈ 166.8 mm (scale 1.0)
+function generateConsolidatedPDFLegal(){
   const{jsPDF}=window.jspdf;
   const cfg=state.cfg,mc=state.masterCols;
   // Legal landscape: 355.6 × 215.9 mm
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'legal'});
   const PW=355.6,PH=215.9,MARGIN=7,GAP=5;
-  const SLOT_W=(PW-2*MARGIN-GAP)/2;   // ~166.8 mm per panel
-  const SLOT_H=PH-2*MARGIN;           // ~201.9 mm per panel
+  const SLOT_W=(PW-2*MARGIN-GAP)/2;   // ≈166.8 mm per panel
+  const SLOT_H=PH-2*MARGIN;           // ≈201.9 mm per panel
 
   const total=state.studentResults.length;
   for(let si=0;si<total;si+=2){
@@ -2215,7 +2266,41 @@ function generateConsolidatedPDF(){
   }
   const cls=state.className?'_Cls'+state.className:'';
   const sec=state.sectionName?'_Sec'+state.sectionName:'';
-  doc.save(`YellowSheet${cls}${sec}_ResultCard.pdf`);
+  doc.save(`YellowSheet${cls}${sec}_ResultCard_Legal.pdf`);
+}
+
+// Letter portrait — 1 student per page, slot width ≈ 201.9 mm (scale ≈ 1.21)
+// All fonts, column widths and row heights are ~1.2× larger — full and bold look.
+function generateConsolidatedPDFLetter(){
+  const{jsPDF}=window.jspdf;
+  const cfg=state.cfg,mc=state.masterCols;
+  // Letter portrait: 215.9 × 279.4 mm
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'letter'});
+  const PW=215.9,PH=279.4,MARGIN=7;
+  const SLOT_W=PW-2*MARGIN;   // ≈201.9 mm — gives scale ≈ 1.21 in drawStudentCard
+  const SLOT_H=PH-2*MARGIN;   // ≈265.4 mm — tall single-card page
+
+  const total=state.studentResults.length;
+  for(let si=0;si<total;si++){
+    if(si>0)doc.addPage();
+    drawStudentCard(doc,cfg,mc,state.studentResults[si],state.allStudents[state.studentResults[si].roll],MARGIN,MARGIN,SLOT_W,SLOT_H);
+  }
+  const cls=state.className?'_Cls'+state.className:'';
+  const sec=state.sectionName?'_Sec'+state.sectionName:'';
+  doc.save(`YellowSheet${cls}${sec}_ResultCard_Letter.pdf`);
+}
+
+// ── Layout toggle helper (called from UI buttons) ──
+function setPdfLayout(layout){
+  state.pdfLayout=layout;
+  const lBtn=document.getElementById('layout-btn-legal');
+  const ltBtn=document.getElementById('layout-btn-letter');
+  const hint=document.getElementById('layout-hint');
+  if(lBtn)lBtn.className='btn '+(layout==='legal'?'btn-primary':'btn-outline');
+  if(ltBtn)ltBtn.className='btn '+(layout==='letter'?'btn-primary':'btn-outline');
+  if(hint)hint.textContent=layout==='letter'
+    ?'Letter portrait · 1 card/page · fonts ~1.2× larger'
+    :'Legal landscape · 2 cards/page · compact';
 }
 
 </script>
