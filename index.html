@@ -1587,7 +1587,15 @@ function drawSlip(doc,slip,x,y,w,h,examTitle){
   doc.setFontSize(rollFontSz);doc.setFont('helvetica','bold');
   doc.text('Roll No.:',x+3,cy+rollFontSz*0.35+1);
   doc.setFont('helvetica','normal');doc.text(String(sr.roll),x+24,cy+rollFontSz*0.35+1);
-  doc.setFontSize(rollFontSz);
+  // ── Student name — centred in the roll row ──
+  if(sr.name){
+    doc.setFontSize(rollFontSz);doc.setFont('helvetica','bold');doc.setTextColor(13,27,56);
+    doc.text(String(sr.name),x+w/2,cy+rollFontSz*0.35+1,{align:'center'});
+  }
+  // ── Class / Division — right-aligned ──
+  const _ci=[state.className?'Std: '+state.className:'',state.sectionName?'Div: '+state.sectionName:''].filter(Boolean).join('  ');
+  if(_ci){doc.setFontSize(rollFontSz*0.82);doc.setFont('helvetica','normal');doc.setTextColor(50,50,90);doc.text(_ci,x+w-3,cy+rollFontSz*0.35+1,{align:'right'});}
+  doc.setTextColor(30,30,30);
   cy+=ROLL_H-3;
   doc.setDrawColor(13,27,56);doc.setLineWidth(0.5);
   doc.line(x+2,cy,x+w-2,cy);
