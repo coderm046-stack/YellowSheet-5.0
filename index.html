@@ -551,6 +551,117 @@ const state={
   pdfLayout:'legal'
 };
 
+// ═══════════════════════════════════════════════════════════════════════
+// SESSION PERSISTENCE (localStorage)
+// ═══════════════════════════════════════════════════════════════════════
+const SESSION_KEY='ys_session_v1';
+
+function saveSession(){
+  try{
+    const snap={
+      faculty:state.faculty,
+      schoolName:state.schoolName,className:state.className,
+      sectionName:state.sectionName,academicYear:state.academicYear,
+      uploadMode:state.uploadMode,singleExamType:state.singleExamType,
+      masterCols:state.masterCols,
+      studentRolls:state.studentRolls,
+      allStudents:state.allStudents,
+      internalMarks:state.internalMarks,
+      gradeSubjects:state.gradeSubjects,
+      gradeSubjectCols:state.gradeSubjectCols,
+      studentResults:state.studentResults,
+      reportGenerated:state.reportGenerated,
+      pdfLayout:state.pdfLayout,
+      letterheadDataUrl:state.letterheadDataUrl,
+      letterheadFormat:state.letterheadFormat,
+      savedAt:Date.now()
+    };
+    localStorage.setItem(SESSION_KEY,JSON.stringify(snap));
+  }catch(e){console.warn('Session save failed:',e);}
+}
+
+function clearSession(){
+  try{localStorage.removeItem(SESSION_KEY);}catch(e){}
+}
+
+function loadSession(){
+  try{
+    const raw=localStorage.getItem(SESSION_KEY);
+    if(!raw)return null;
+    return JSON.parse(raw);
+  }catch(e){return null;}
+}
+
+function restoreSession(snap){
+  state.faculty=snap.faculty;
+  state.cfg=snap.faculty?FACULTY_CONFIG[snap.faculty]:null;
+  state.schoolName=snap.schoolName||'';
+  state.className=snap.className||'';
+  state.sectionName=snap.sectionName||'';
+  state.academicYear=snap.academicYear||'';
+  state.uploadMode=snap.uploadMode||'full';
+  state.singleExamType=snap.singleExamType||'';
+  state.masterCols=snap.masterCols||[];
+  state.studentRolls=snap.studentRolls||[];
+  state.allStudents=snap.allStudents||{};
+  state.internalMarks=snap.internalMarks||{};
+  state.gradeSubjects=snap.gradeSubjects||{};
+  state.gradeSubjectCols=snap.gradeSubjectCols||[];
+  state.studentResults=snap.studentResults||[];
+  state.reportGenerated=snap.reportGenerated||false;
+  state.pdfLayout=snap.pdfLayout||'legal';
+  state.letterheadDataUrl=snap.letterheadDataUrl||null;
+  state.letterheadFormat=snap.letterheadFormat||'PNG';
+  // Restore UI inputs
+  const sn=document.getElementById('school-name');if(sn)sn.value=state.schoolName;
+  const cls=document.getElementById('class-select');if(cls)cls.value=state.className;
+  const sec=document.getElementById('section-select');if(sec)sec.value=state.sectionName;
+  const ay=document.getElementById('acad-year');if(ay)ay.value=state.academicYear;
+  // Restore letterhead preview
+  if(state.letterheadDataUrl){
+    const ph=document.getElementById('lh-placeholder');if(ph)ph.style.display='none';
+    const lhImg=document.getElementById('lh-preview');if(lhImg){lhImg.src=state.letterheadDataUrl;lhImg.style.display='block';}
+    const lhBtn=document.getElementById('lh-clear-btn');if(lhBtn)lhBtn.style.display='flex';
+  }
+  // Restore faculty card selection
+  if(state.faculty){
+    document.querySelectorAll('.faculty-card').forEach((c,i)=>c.classList.toggle('selected',['Arts','Commerce','Science'][i]===state.faculty));
+  }
+  // Re-render report
+  if(state.reportGenerated&&state.studentResults.length){
+    renderReport();
+    goToStep(4);
+    toast('Previous session restored \uD83D\uDCC2','success');
+  }
+}
+
+function showResumeBanner(snap){
+  const savedDate=snap.savedAt?new Date(snap.savedAt).toLocaleString():'Unknown';
+  const desc=[
+    snap.schoolName||'',
+    snap.className?'Class '+snap.className+(snap.sectionName?' \u2013 '+snap.sectionName:''):'',
+    snap.faculty?snap.faculty+' Faculty':'',
+    snap.academicYear||''
+  ].filter(Boolean).join('  \xb7  ');
+  const banner=document.createElement('div');
+  banner.id='resume-banner';
+  banner.style.cssText='background:linear-gradient(135deg,#1A3060,#0D1B38);border-radius:12px;padding:18px 22px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;box-shadow:0 4px 20px rgba(13,27,56,.25);animation:cardIn .35s ease both';
+  banner.innerHTML=`
+    <div style="flex:1;min-width:220px">
+      <div style="color:var(--gold-light);font-weight:700;font-size:.95rem;margin-bottom:3px">\uD83D\uDCC2 Previous Session Found</div>
+      <div style="color:rgba(255,255,255,.85);font-size:.83rem">${desc||'Saved session'}</div>
+      <div style="color:rgba(255,255,255,.45);font-size:.74rem;margin-top:2px">Saved: ${savedDate} \xb7 ${(snap.studentResults||[]).length} students</div>
+    </div>
+    <div style="display:flex;gap:10px;flex-shrink:0">
+      <button class="btn btn-gold" onclick="document.getElementById('resume-banner').remove();restoreSession(window.__ys_snap__)">&#x25B6; Resume Session</button>
+      <button class="btn btn-outline" style="border-color:rgba(255,255,255,.3);color:#fff" onclick="clearSession();window.__ys_snap__=null;document.getElementById('resume-banner').remove();toast('Starting fresh!','info')">\u2715 Discard &amp; Start New</button>
+    </div>`;
+  // Insert at top of section-1 content (after the first card)
+  const main=document.getElementById('section-1');
+  main.insertBefore(banner,main.firstChild);
+  window.__ys_snap__=snap;
+}
+
 // ── Pre-load app icon for PDF use ──
 (function preloadAppIcon(){
   const img=new Image();
@@ -730,6 +841,9 @@ fileInput.addEventListener('change',e=>{if(e.target.files[0])handleFile(e.target
 
 function handleFile(file){
   if(!file.name.match(/\.(xlsx|xls)$/i)){toast('Please upload an Excel (.xlsx) file','error');return;}
+  // If there's a saved session, remove the resume banner since user is starting fresh with new file
+  const existingBanner=document.getElementById('resume-banner');
+  if(existingBanner){existingBanner.remove();clearSession();}
   const reader=new FileReader();
   reader.onload=e=>{
     try{
@@ -931,6 +1045,12 @@ function setIntMode(mode){
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
+  // ── Check for saved session ──
+  const snap=loadSession();
+  if(snap&&snap.reportGenerated&&(snap.studentResults||[]).length>0){
+    showResumeBanner(snap);
+  }
+
   const intInput=document.getElementById('int-file-input');
   if(intInput){
     intInput.addEventListener('change',e=>{if(e.target.files[0])handleInternalFile(e.target.files[0]);});
@@ -1128,6 +1248,7 @@ function generateReport(){
       const rankMap=Object.fromEntries(passGTs.map((v,i)=>[v,i+1]));
       for(const sr of state.studentResults)sr.rank=sr.pass?rankMap[sr.gt]:'';
       state.reportGenerated=true;
+      saveSession();
       renderReport();hideLoading();goToStep(4);
       toast('Report generated!','success');
     }catch(err){hideLoading();toast('Report error: '+err.message,'error');console.error(err);}
@@ -1142,9 +1263,15 @@ function buildSubjectPassSummaryHtml(){
   const rows=mc.map((abbr,idx)=>{
     const[sname,,,scode]=cfg.subjects[abbr]||[abbr];
     const displayName=scode?`${sname} (${scode})`:sname;
-    const appeared=state.studentResults.filter(sr=>sr.subj6.includes(abbr)).length;
-    const pass=state.studentResults.filter(sr=>sr.subj6.includes(abbr)&&(sr.a100[abbr]||0)>=35).length;
+    const appearedStudents=state.studentResults.filter(sr=>sr.subj6.includes(abbr));
+    const appeared=appearedStudents.length;
+    const pass=appearedStudents.filter(sr=>(sr.a100[abbr]||0)>=35).length;
     const failed=appeared-pass;
+    // Average marks out of 100 for this subject
+    const totalMarks=appearedStudents.reduce((sum,sr)=>sum+(sr.a100[abbr]||0),0);
+    const avg=appeared>0?(totalMarks/appeared).toFixed(1):'—';
+    const avgNum=appeared>0?parseFloat(avg):null;
+    const avgColor=avgNum===null?'var(--text-muted)':avgNum>=60?'var(--success)':avgNum>=35?'#c07000':'var(--danger)';
     const pct=appeared>0?(pass/appeared*100).toFixed(1):'0.0';
     const pctNum=parseFloat(pct);
     const pctColor=pctNum>=75?'var(--success)':pctNum>=50?'#c07000':'var(--danger)';
@@ -1154,12 +1281,13 @@ function buildSubjectPassSummaryHtml(){
       <td style="text-align:center">${appeared}</td>
       <td style="text-align:center;color:var(--success);font-weight:700">${pass}</td>
       <td style="text-align:center;color:var(--danger);font-weight:700">${failed}</td>
+      <td style="text-align:center;font-weight:700;color:${avgColor}">${avg}</td>
       <td style="text-align:center;font-weight:700;color:${pctColor}">${pct}%</td>
     </tr>`;
   }).join('');
   return`<div class="card">
     <div class="card-title">📊 Subject-Wise Pass % Summary</div>
-    <div class="card-sub">Based on final average marks /100 per subject. Pass mark = 35. Pass % colour: <span style="color:var(--success);font-weight:600">≥ 75%</span> · <span style="color:#c07000;font-weight:600">50–74%</span> · <span style="color:var(--danger);font-weight:600">&lt; 50%</span>.</div>
+    <div class="card-sub">Based on final average marks /100 per subject. Pass mark = 35. Average colour: <span style="color:var(--success);font-weight:600">≥ 60</span> · <span style="color:#c07000;font-weight:600">35–59</span> · <span style="color:var(--danger);font-weight:600">&lt; 35</span>. Pass % colour: <span style="color:var(--success);font-weight:600">≥ 75%</span> · <span style="color:#c07000;font-weight:600">50–74%</span> · <span style="color:var(--danger);font-weight:600">&lt; 50%</span>.</div>
     <div class="table-wrap"><table>
       <thead><tr>
         <th style="text-align:center;width:60px">Sr. No.</th>
@@ -1167,6 +1295,7 @@ function buildSubjectPassSummaryHtml(){
         <th style="text-align:center">Appeared</th>
         <th style="text-align:center">Pass</th>
         <th style="text-align:center">Failed</th>
+        <th style="text-align:center">Average<br><small style="font-weight:400;opacity:.8">/100</small></th>
         <th style="text-align:center">Pass %</th>
       </tr></thead>
       <tbody>${rows}</tbody>
@@ -1253,6 +1382,7 @@ function renderReport(){
 // ═══════════════════════════════════════════════════════════════════════
 function startOver(){
   if(!confirm('Clear all data and start a new report? This cannot be undone.'))return;
+  clearSession();
   // Reset state
   state.faculty=null;state.cfg=null;state.workbook=null;
   state.allStudents={};state.studentRolls=[];state.masterCols=[];
@@ -1835,6 +1965,7 @@ function generateSingleReport(){
       const rankMap=Object.fromEntries(passGTs.map((v,i)=>[v,i+1]));
       for(const sr of state.studentResults)sr.rank=sr.pass?rankMap[sr.gt]:'';
       state.reportGenerated=true;
+      saveSession();
       renderSingleReportPage();hideLoading();goToStep(4);
       toast('Single exam report generated!','success');
     }catch(err){hideLoading();toast('Report error: '+err.message,'error');console.error(err);}
