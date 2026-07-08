@@ -441,7 +441,7 @@ tbody tr:last-child td{border-bottom:none}
 <!-- ═══════ STEP 3 ═══════ -->
 <div class="section" id="section-3">
   <div id="school-banner-3"></div>
-  <div class="card">
+  <div class="card" id="int-marks-card">
     <div class="card-title">📝 Enter Internal / Practical Marks</div>
     <div class="card-sub" id="step3-sub">Enter marks per student. These are combined with 4 exam marks for the total out of 200.</div>
     <div class="alert alert-info">
@@ -473,7 +473,7 @@ tbody tr:last-child td{border-bottom:none}
 
     <div id="internal-marks-content" style="overflow-x:auto"></div>
   </div>
-  <div class="card">
+  <div class="card" id="grade-subjects-card">
     <div class="card-title">📊 Optional: Co-Curricular / Grade Subjects</div>
     <div class="card-sub">Upload an Excel or CSV file with grade-based subjects. These will print on PDF result slips below the main subjects.</div>
     <div class="alert alert-info" style="margin-bottom:14px">
@@ -821,8 +821,6 @@ function handleLetterheadUpload(input){
 function clearLetterhead(e){
   e.preventDefault();e.stopPropagation();
   state.letterheadDataUrl=null;state.letterheadFormat='PNG';
-  state.uploadMode='full';state.singleExamType='';
-  state.gradeSubjects={};state.gradeSubjectCols=[];
   document.getElementById('lh-placeholder').style.display='';
   const img=document.getElementById('lh-preview');img.src='';img.style.display='none';
   document.getElementById('lh-clear-btn').style.display='none';
@@ -905,7 +903,7 @@ function detectSubjectsAcrossSheets(roll,cfg,allDfs){
       if(val&&val.toUpperCase()!=='NAN'&&val!=='0')return[...core,o];
     }
   }
-  return[...core,opt[0]];
+  return[...core];
 }
 function parseAllSheets(){
   const wb=state.workbook,cfg=state.cfg;
@@ -1240,7 +1238,7 @@ function generateReport(){
           t200[abbr]=ut1+ft+ut2+ann+int;a100[abbr]=customRound(t200[abbr]/2);
         }
         const gt=Object.values(a100).reduce((s,v)=>s+v,0);
-        const pc=Math.round(gt/600*10000)/100;
+        const pc=Math.round(gt/(subj6.length*100)*10000)/100;
         const isP=subj6.every(a=>a100[a]>=35);
         state.studentResults.push({roll,name:s.name,subj6,t200,a100,gt,pc,pass:isP,rank:''});
       }
@@ -1261,8 +1259,8 @@ function generateReport(){
 function buildSubjectPassSummaryHtml(){
   const cfg=state.cfg,mc=state.masterCols;
   const rows=mc.map((abbr,idx)=>{
-    const[sname,,,scode]=cfg.subjects[abbr]||[abbr];
-    const displayName=scode?`${sname} (${scode})`:sname;
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const displayName=sname;
     const appearedStudents=state.studentResults.filter(sr=>sr.subj6.includes(abbr));
     const appeared=appearedStudents.length;
     const pass=appearedStudents.filter(sr=>(sr.a100[abbr]||0)>=35).length;
@@ -1286,7 +1284,10 @@ function buildSubjectPassSummaryHtml(){
     </tr>`;
   }).join('');
   return`<div class="card">
-    <div class="card-title">📊 Subject-Wise Pass % Summary</div>
+    <div class="card-title">📊 Subject-Wise Pass % Summary
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadFullPassPctXLSX()">📥 XLSX</button>
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadFullPassPctPDF()">📄 PDF</button>
+    </div>
     <div class="card-sub">Based on final average marks /100 per subject. Pass mark = 35. Average colour: <span style="color:var(--success);font-weight:600">≥ 60</span> · <span style="color:#c07000;font-weight:600">35–59</span> · <span style="color:var(--danger);font-weight:600">&lt; 35</span>. Pass % colour: <span style="color:var(--success);font-weight:600">≥ 75%</span> · <span style="color:#c07000;font-weight:600">50–74%</span> · <span style="color:var(--danger);font-weight:600">&lt; 50%</span>.</div>
     <div class="table-wrap"><table>
       <thead><tr>
@@ -1304,12 +1305,57 @@ function buildSubjectPassSummaryHtml(){
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+// CLASS / GRADE-WISE RESULT SUMMARY — shared by full-year and single-exam
+// ═══════════════════════════════════════════════════════════════════════
+const GRADE_BANDS=[
+  {min:75,max:100,label:'75% AND ABOVE',cls:'DISTINCTION',grade:'O'},
+  {min:60,max:74.99,label:'60% TO 74%',cls:'FIRST CLASS',grade:'A'},
+  {min:50,max:59.99,label:'50% TO 59%',cls:'SECOND CLASS',grade:'B'},
+  {min:35,max:49.99,label:'35% TO 49%',cls:'PASS CLASS',grade:'C'},
+  {min:0,max:34.99,label:'BELOW 35%',cls:'FAIL',grade:''}
+];
+function buildGradeWiseSummaryHtml(){
+  const total=state.studentResults.length;
+  if(!total)return'';
+  const rows=GRADE_BANDS.map((band,idx)=>{
+    const count=state.studentResults.filter(r=>r.pc>=band.min&&r.pc<=band.max).length;
+    const pct=total>0?((count/total)*100).toFixed(1):'0.0';
+    return`<tr>
+      <td style="text-align:center"><strong>${idx+1}</strong></td>
+      <td style="text-align:center">${band.label}</td>
+      <td style="text-align:center"><strong>${band.cls}</strong></td>
+      <td style="text-align:center;font-weight:700">${band.grade}</td>
+      <td style="text-align:center;font-weight:700">${count}</td>
+      <td style="text-align:center;font-weight:700">${pct}%</td>
+    </tr>`;
+  }).join('');
+  return`<div class="card">
+    <div class="card-title">📊 Class Wise / Grade Wise Result Summary
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadGradeWiseXLSX()">📥 XLSX</button>
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadGradeWisePDF()">📄 PDF</button>
+    </div>
+    <div class="card-sub">Student distribution by percentage range.</div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="text-align:center;width:60px">Sr. No.</th>
+        <th style="text-align:center">Percentage</th>
+        <th style="text-align:center">Class</th>
+        <th style="text-align:center">Grade</th>
+        <th style="text-align:center">Students</th>
+        <th style="text-align:center">% of Total</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // RENDER REPORT
 // ═══════════════════════════════════════════════════════════════════════
 function renderReport(){
   const passed=state.studentResults.filter(r=>r.pass).length;
   const failed=state.studentResults.length-passed;
-  const pct=(passed/state.studentResults.length*100).toFixed(1);
+  const pct=state.studentResults.length>0?(passed/state.studentResults.length*100).toFixed(1):'0.0';
   const cfg=state.cfg,mc=state.masterCols;
   const sl=buildSchoolSubline();
   const bannerHtml=sl||state.schoolName?`
@@ -1346,7 +1392,10 @@ function renderReport(){
       <button class="btn btn-outline" onclick="startOver()" style="margin-left:auto;border-color:var(--danger);color:var(--danger)">🔄 Start New Report</button>
     </div>
     <div class="card">
-      <div class="card-title">📋 Consolidated Result Summary</div>
+      <div class="card-title">📋 Consolidated Result Summary
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadFullResultSummaryXLSX()">📥 XLSX</button>
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadFullResultSummaryPDF()">📄 PDF</button>
+      </div>
       <div class="card-sub">Average marks /100 per subject. <span style="color:var(--danger)">Red</span> = below pass mark (35). Rank = dense rank among PASS students.</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Roll</th><th>Name</th>${subHdrs}
@@ -1355,6 +1404,7 @@ function renderReport(){
         <tbody>${rows}</tbody></table></div>
     </div>
     ${buildSubjectPassSummaryHtml()}
+    ${buildGradeWiseSummaryHtml()}
     <div class="card">
       <div class="card-title">📄 Generate PDF Result Slips</div>
       <div class="card-sub">Slips include your letterhead / school name, class, section and faculty on every page. Select exam(s) below.</div>
@@ -1418,6 +1468,11 @@ function startOver(){
   const gradeInp=document.getElementById('grade-file-input');if(gradeInp)gradeInp.value='';
   const gradeBadge=document.getElementById('grade-file-badge');if(gradeBadge)gradeBadge.innerHTML='';
   const gradeCard=document.getElementById('grade-preview-card');if(gradeCard)gradeCard.style.display='none';
+  // Restore hidden cards and text
+  const imc=document.getElementById('int-marks-card');if(imc)imc.style.display='';
+  const gsc=document.getElementById('grade-subjects-card');if(gsc)gsc.style.display='';
+  const s3s=document.getElementById('step3-sub');
+  if(s3s)s3s.textContent='Enter marks per student. These are combined with 4 exam marks for the total out of 200.';
   goToStep(1);
   toast('Started fresh! Upload a new file.','info');
 }
@@ -1431,6 +1486,7 @@ function exportExcel(){
     try{
       const cfg=state.cfg,mc=state.masterCols;
       const n_sub=mc.length,n=state.studentResults.length;
+      if(!n){hideLoading();toast('No student data to export','error');return;}
       const COL_ROLL=0,COL_NAME=1,COL_CAT=2,COL_SUB=3;
       const COL_GT=COL_SUB+n_sub,COL_PCT=COL_GT+1,COL_RES=COL_PCT+1,COL_REM=COL_RES+1,COL_RNK=COL_REM+1;
       const TOTAL_COLS=COL_RNK+1;
@@ -1916,11 +1972,13 @@ function renderInternalMarksSingle(){
   const examLabel=state.singleExamType;
   const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
   const maxStr=ec?`(exam max: ${ec.maxPerSub||'70/80'} per subject)`:'';
-  renderInternalMarks();
-  document.getElementById('internal-marks-content').insertAdjacentHTML('afterbegin',
-    `<div class="alert alert-info" style="margin-bottom:14px">
-      📋 <strong>Single Exam Mode — ${examLabel}</strong> ${maxStr}. Internal marks optional; leave as 0 if not applicable.
-     </div>`);
+  document.getElementById('int-marks-card').style.display='none';
+  document.getElementById('grade-subjects-card').style.display='none';
+  document.getElementById('internal-marks-content').innerHTML=
+    `<div class="alert alert-info" style="margin-bottom:0">
+      📋 <strong>Single Exam Mode — ${examLabel}</strong> ${maxStr}. No internal marks needed for single exam. Click <strong>"Generate Final Report &amp; Rank"</strong> below.
+     </div>`;
+  document.getElementById('step3-sub').textContent='Single exam mode — result calculated from exam marks only.';
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1942,10 +2000,9 @@ function generateSingleReport(){
           const[,annMax]=cfg.subjects[abbr]||[abbr,80];
           const maxM=(examLabel==='ANNUAL EXAM (70/80)')?annMax:(ec?.maxPerSub||25);
           const raw=examData[abbr];
-          const intM=parseFloat(state.internalMarks[roll]?.[abbr])||0;
           const obt=(raw==='AB')?0:(parseFloat(raw)||0);
           examMarks[abbr]=obt;
-          a100Single[abbr]=obt+intM;
+          a100Single[abbr]=obt;
         }
         const gt=Object.values(a100Single).reduce((s,v)=>s+v,0);
         const subCount=subj6.length;
@@ -1972,12 +2029,67 @@ function generateSingleReport(){
   },80);
 }
 
+function buildSingleSubjectPassSummaryHtml(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const examLabel=state.singleExamType;
+  const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
+  const isAnn=examLabel==='ANNUAL EXAM (70/80)';
+  const rows=mc.map((abbr,idx)=>{
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const appearedStudents=state.studentResults.filter(sr=>sr.subj6.includes(abbr));
+    const appeared=appearedStudents.length;
+    const pass=appearedStudents.filter(sr=>{
+      let req=ec?.passMark||9;
+      if(isAnn)req=cfg.subjects[abbr]?.[1]===70?25:28;
+      return (sr.a100[abbr]||0)>=req;
+    }).length;
+    const failed=appeared-pass;
+    const totalMarks=appearedStudents.reduce((sum,sr)=>sum+(sr.a100[abbr]||0),0);
+    const avg=appeared>0?(totalMarks/appeared).toFixed(1):'—';
+    const avgNum=appeared>0?parseFloat(avg):null;
+    const maxPerSub=ec?.maxPerSub||(isAnn?(cfg.subjects[abbr]?.[1]||80):'?');
+    const avgColor=avgNum===null?'var(--text-muted)':avgNum>=maxPerSub*0.6?'var(--success)':avgNum>=maxPerSub*0.35?'#c07000':'var(--danger)';
+    const pct=appeared>0?(pass/appeared*100).toFixed(1):'0.0';
+    const pctNum=parseFloat(pct);
+    const pctColor=pctNum>=75?'var(--success)':pctNum>=50?'#c07000':'var(--danger)';
+    return`<tr>
+      <td style="text-align:center"><strong>${idx+1}</strong></td>
+      <td><strong>${sname}</strong></td>
+      <td style="text-align:center">${appeared}</td>
+      <td style="text-align:center;color:var(--success);font-weight:700">${pass}</td>
+      <td style="text-align:center;color:var(--danger);font-weight:700">${failed}</td>
+      <td style="text-align:center;font-weight:700;color:${avgColor}">${avg}</td>
+      <td style="text-align:center;font-weight:700;color:${pctColor}">${pct}%</td>
+    </tr>`;
+  }).join('');
+  const maxPerSub=ec?.maxPerSub||(isAnn?'70/80':'?');
+  return`<div class="card">
+    <div class="card-title">📊 Subject-Wise Pass % Summary
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadSinglePassPctXLSX()">📥 XLSX</button>
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadSinglePassPctPDF()">📄 PDF</button>
+    </div>
+    <div class="card-sub">Pass mark = ${ec?.passMark||9}${isAnn?' (25 for 70-max, 28 for 80-max)':''}. Average colour: <span style="color:var(--success);font-weight:600">≥ 60% of max</span> · <span style="color:#c07000;font-weight:600">35–59%</span> · <span style="color:var(--danger);font-weight:600">&lt; 35%</span>.</div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th style="text-align:center;width:60px">Sr. No.</th>
+        <th>Subject</th>
+        <th style="text-align:center">Appeared</th>
+        <th style="text-align:center">Pass</th>
+        <th style="text-align:center">Failed</th>
+        <th style="text-align:center">Average<br><small style="font-weight:400;opacity:.8">/${maxPerSub}</small></th>
+        <th style="text-align:center">Pass %</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
 function renderSingleReportPage(){
   const examLabel=state.singleExamType;
   const ec=EXAM_CONFIGS.find(e=>e.label===examLabel);
   const passed=state.studentResults.filter(r=>r.pass).length;
   const failed=state.studentResults.length-passed;
-  const pct=(passed/state.studentResults.length*100).toFixed(1);
+  const pct=state.studentResults.length>0?(passed/state.studentResults.length*100).toFixed(1):'0.0';
   const cfg=state.cfg,mc=state.masterCols;
   const sl=buildSchoolSubline();
   const bannerHtml=sl||state.schoolName?`
@@ -2015,17 +2127,22 @@ function renderSingleReportPage(){
     </div>
     <div class="actions-row">
       <button class="btn btn-success btn-lg" onclick="generateSinglePDF()">📄 Download PDF Slips</button>
-      <button class="btn btn-outline" onclick="goToStep(3)">← Edit Marks</button>
+      <button class="btn btn-outline" onclick="goToStep(3)">← Back</button>
       <button class="btn btn-outline" onclick="startOver()" style="margin-left:auto;border-color:var(--danger);color:var(--danger)">🔄 Start New Report</button>
     </div>
     <div class="card">
-      <div class="card-title">📋 ${examLabel} — Result Summary</div>
+      <div class="card-title">📋 ${examLabel} — Result Summary
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadSingleResultSummaryXLSX()">📥 XLSX</button>
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadSingleResultSummaryPDF()">📄 PDF</button>
+      </div>
       <div class="card-sub"><span style="color:var(--danger)">Red</span> = below pass mark. Rank = dense rank among PASS students.</div>
       <div class="table-wrap"><table>
         <thead><tr><th>Roll</th><th>Name</th>${subHdrs}<th>Total</th><th>%</th><th>Result</th><th>Rank</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
     </div>
+    ${buildSingleSubjectPassSummaryHtml()}
+    ${buildGradeWiseSummaryHtml()}
     ${buildToppersHtmlForExam(examLabel,ec,'single')}`;
 }
 
@@ -2035,6 +2152,434 @@ function generateSinglePDF(){
     try{generateOnePDF(state.singleExamType);hideLoading();toast('PDF downloaded!','success');}
     catch(err){hideLoading();toast('PDF error: '+err.message,'error');console.error(err);}
   },80);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// SINGLE EXAM DOWNLOAD HELPERS — XLSX & PDF for each table
+// ═══════════════════════════════════════════════════════════════════════
+function downloadSingleResultSummaryXLSX(){
+  const sr=state.studentResults,cfg=state.cfg,mc=state.masterCols;
+  const ec=EXAM_CONFIGS.find(e=>e.label===state.singleExamType);
+  const maxPerSub=ec?.maxPerSub||'?';
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  const merges=[];
+  merges.push({s:{r:0,c:0},e:{r:0,c:6+mc.length}});
+  SC(0,0,`${state.schoolName||'School'} — ${state.singleExamType}  |  ${buildSchoolSubline()}`);
+  const hdrs=['Roll No.','Student Name',...mc.map(a=>(cfg.subjects[a]||[a])[0]),'Total','%','Result','Rank'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  sr.forEach((r,ri)=>{
+    const row=ri+3;
+    SC(row,0,r.roll);SC(row,1,r.name);
+    mc.forEach((a,ci)=>{
+      const v=r.a100[a]||0;
+      if(r.subj6.includes(a))SCn(row,ci+2,v);else SC(row,ci+2,'—');
+    });
+    SCn(row,2+mc.length,r.gt);
+    SC(row,3+mc.length,r.pc+'%');
+    SC(row,4+mc.length,r.pass?'PASS':'FAIL');
+    SC(row,5+mc.length,r.rank||'—');
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:sr.length+2,c:6+mc.length}});
+  ws['!merges']=merges;
+  ws['!cols']=[{wch:10},{wch:22},...mc.map(()=>({wch:13})),{wch:10},{wch:10},{wch:10},{wch:8}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Result Summary');
+  const cls=state.className?'_Cls'+state.className:'';const sec=state.sectionName?'_Sec'+state.sectionName:'';
+  XLSX.writeFile(wb,`YellowSheet${cls}${sec}_ResultSummary.xlsx`);
+  toast('Result Summary XLSX downloaded!','success');
+}
+
+function downloadSingleResultSummaryPDF(){
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const sr=state.studentResults,cfg=state.cfg,mc=state.masterCols;
+  const ec=EXAM_CONFIGS.find(e=>e.label===state.singleExamType);
+  const maxPerSub=ec?.maxPerSub||'?';
+  doc.setFontSize(14);doc.text(`${state.schoolName||'School'}`,doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(`${state.singleExamType}  —  ${buildSchoolSubline()}`,doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=sr.map(r=>[r.roll,r.name,...mc.map(a=>r.subj6.includes(a)?(r.a100[a]||0):'—'),r.gt,r.pc+'%',r.pass?'PASS':'FAIL',r.rank||'—']);
+  const hdrs=['Roll','Name',...mc.map(a=>(cfg.subjects[a]||[a])[0]),'Total','%','Result','Rank'];
+  doc.autoTable({head:[hdrs],body,startY:28,styles:{fontSize:7,cellPadding:1.5},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_ResultSummary.pdf`);
+  toast('Result Summary PDF downloaded!','success');
+}
+
+function downloadSinglePassPctXLSX(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const ec=EXAM_CONFIGS.find(e=>e.label===state.singleExamType);
+  const isAnn=state.singleExamType==='ANNUAL EXAM (70/80)';
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Subject-Wise Pass % Summary — '+state.singleExamType);
+  const hdrs=['Sr. No.','Subject','Appeared','Pass','Failed','Average','Pass %'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  mc.forEach((abbr,idx)=>{
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const app=state.studentResults.filter(r=>r.subj6.includes(abbr));
+    const appeared=app.length;
+    const pass=app.filter(r=>{
+      let req=ec?.passMark||9;if(isAnn)req=cfg.subjects[abbr]?.[1]===70?25:28;
+      return(r.a100[abbr]||0)>=req;
+    }).length;
+    const failed=appeared-pass;
+    const totalMarks=app.reduce((s,r)=>s+(r.a100[abbr]||0),0);
+    const avg=appeared>0?(totalMarks/appeared).toFixed(1):'—';
+    const pct=appeared>0?((pass/appeared)*100).toFixed(1):'0.0';
+    const row=idx+3;
+    SCn(row,0,idx+1);SC(row,1,sname);SCn(row,2,appeared);SCn(row,3,pass);SCn(row,4,failed);SC(row,5,String(avg));SC(row,6,pct+'%');
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:mc.length+2,c:6}});
+  ws['!cols']=[{wch:8},{wch:16},{wch:10},{wch:8},{wch:8},{wch:10},{wch:10}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Subject Pass %');
+  XLSX.writeFile(wb,`YellowSheet_SubjectPassPct.xlsx`);
+  toast('Subject Pass % XLSX downloaded!','success');
+}
+
+function downloadSinglePassPctPDF(){
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const cfg=state.cfg,mc=state.masterCols;
+  const ec=EXAM_CONFIGS.find(e=>e.label===state.singleExamType);
+  const isAnn=state.singleExamType==='ANNUAL EXAM (70/80)';
+  doc.setFontSize(14);doc.text('Subject-Wise Pass % Summary',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(`${state.singleExamType}  —  ${buildSchoolSubline()}`,doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=mc.map((abbr,idx)=>{
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const app=state.studentResults.filter(r=>r.subj6.includes(abbr));
+    const appeared=app.length;
+    const pass=app.filter(r=>{
+      let req=ec?.passMark||9;if(isAnn)req=cfg.subjects[abbr]?.[1]===70?25:28;
+      return(r.a100[abbr]||0)>=req;
+    }).length;
+    const failed=appeared-pass;
+    const totalMarks=app.reduce((s,r)=>s+(r.a100[abbr]||0),0);
+    const avg=appeared>0?(totalMarks/appeared).toFixed(1):'—';
+    const pct=appeared>0?((pass/appeared)*100).toFixed(1):'0.0';
+    return[String(idx+1),sname,String(appeared),String(pass),String(failed),avg,pct+'%'];
+  });
+  doc.autoTable({head:[['Sr.','Subject','Appeared','Pass','Failed','Average','Pass %']],body,startY:28,styles:{fontSize:8,cellPadding:1.5},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_SubjectPassPct.pdf`);
+  toast('Subject Pass % PDF downloaded!','success');
+}
+
+function downloadSingleToppersOverallXLSX(){
+  const passed=state.studentResults.filter(r=>r.pass);
+  if(!passed.length){toast('No passing students to export','info');return;}
+  const top3=buildToppers3(passed);
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Overall Top 3 — '+state.singleExamType);
+  const hdrs=['Rank','Roll No.','Student Name','Total','Percentage'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  let ri=0;
+  top3.forEach(({rank,group,medal})=>{
+    group.forEach(sr=>{
+      const row=ri+3;
+      SCn(row,0,rank);SC(row,1,sr.roll);SC(row,2,sr.name);SCn(row,3,sr.gt);SC(row,4,sr.pc+'%');
+      ri++;
+    });
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:ri+2,c:4}});
+  ws['!cols']=[{wch:8},{wch:12},{wch:22},{wch:10},{wch:12}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Overall Toppers');
+  XLSX.writeFile(wb,`YellowSheet_OverallToppers.xlsx`);
+  toast('Overall Toppers XLSX downloaded!','success');
+}
+
+function downloadSingleToppersOverallPDF(){
+  const{jsPDF}=window.jspdf;
+  const passed=state.studentResults.filter(r=>r.pass);
+  if(!passed.length){toast('No passing students to export','info');return;}
+  const top3=buildToppers3(passed);
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.text('Overall Top 3',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(`${state.singleExamType}  —  ${buildSchoolSubline()}`,doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=[];
+  top3.forEach(({rank,group,medal})=>{
+    group.forEach(sr=>body.push([medal,String(rank),sr.roll,sr.name,String(sr.gt),sr.pc+'%']));
+  });
+  doc.autoTable({head:[['Medal','Rank','Roll','Name','Total','%']],body,startY:28,styles:{fontSize:9,cellPadding:2},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_OverallToppers.pdf`);
+  toast('Overall Toppers PDF downloaded!','success');
+}
+
+function downloadSingleSubjectToppersXLSX(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const ec=EXAM_CONFIGS.find(e=>e.label===state.singleExamType);
+  const maxLabel=ec?.maxPerSub||'?';
+  const subData=buildSubjectToppers3(mc,cfg,state.studentResults,maxLabel);
+  if(!subData.length){toast('No subject toppers data','info');return;}
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Subject-Wise Top 3 — '+state.singleExamType);
+  const hdrs=['Subject','Rank','Student','Marks'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  let ri=0;
+  subData.forEach(({abbr,sname,toppers})=>{
+    toppers.forEach(({rank,group})=>{
+      group.forEach(sr=>{
+        const row=ri+3;
+        SC(row,0,sname);SCn(row,1,rank);SC(row,2,sr.name+' ('+sr.roll+')');SCn(row,3,sr.a100[abbr]||0);
+        ri++;
+      });
+    });
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:ri+2,c:3}});
+  ws['!cols']=[{wch:16},{wch:8},{wch:26},{wch:10}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Subject Toppers');
+  XLSX.writeFile(wb,`YellowSheet_SubjectToppers.xlsx`);
+  toast('Subject Toppers XLSX downloaded!','success');
+}
+
+function downloadSingleSubjectToppersPDF(){
+  const{jsPDF}=window.jspdf;
+  const cfg=state.cfg,mc=state.masterCols;
+  const ec=EXAM_CONFIGS.find(e=>e.label===state.singleExamType);
+  const maxLabel=ec?.maxPerSub||'?';
+  const subData=buildSubjectToppers3(mc,cfg,state.studentResults,maxLabel);
+  if(!subData.length){toast('No subject toppers data','info');return;}
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.text('Subject-Wise Top 3',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(`${state.singleExamType}  —  ${buildSchoolSubline()}`,doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=[];
+  subData.forEach(({abbr,sname,toppers})=>{
+    toppers.forEach(({rank,group,medal})=>{
+      group.forEach(sr=>body.push([sname,medal,String(rank),sr.name+' ('+sr.roll+')',String(sr.a100[abbr]||0)+' / '+maxLabel]));
+    });
+  });
+  doc.autoTable({head:[['Subject','Medal','Rank','Student','Marks']],body,startY:28,styles:{fontSize:8,cellPadding:1.5},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_SubjectToppers.pdf`);
+  toast('Subject Toppers PDF downloaded!','success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FULL YEAR DOWNLOAD HELPERS — XLSX & PDF for each table
+// ═══════════════════════════════════════════════════════════════════════
+function downloadFullResultSummaryXLSX(){
+  const sr=state.studentResults,cfg=state.cfg,mc=state.masterCols;
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  const merges=[];
+  merges.push({s:{r:0,c:0},e:{r:0,c:6+mc.length}});
+  SC(0,0,`${state.schoolName||'School'} — Consolidated Result  |  ${buildSchoolSubline()}`);
+  const hdrs=['Roll No.','Student Name',...mc.map(a=>(cfg.subjects[a]||[a])[0]),'Total /600','%','Result','Rank'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  sr.forEach((r,ri)=>{
+    const row=ri+3;
+    SC(row,0,r.roll);SC(row,1,r.name);
+    mc.forEach((a,ci)=>{
+      if(r.subj6.includes(a))SCn(row,ci+2,r.a100[a]||0);
+      else SC(row,ci+2,'—');
+    });
+    SCn(row,2+mc.length,r.gt);
+    SC(row,3+mc.length,r.pc+'%');
+    SC(row,4+mc.length,r.pass?'PASS':'FAIL');
+    SC(row,5+mc.length,r.rank||'—');
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:sr.length+2,c:6+mc.length}});
+  ws['!merges']=merges;
+  ws['!cols']=[{wch:10},{wch:22},...mc.map(()=>({wch:13})),{wch:12},{wch:10},{wch:10},{wch:8}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Result Summary');
+  const cls=state.className?'_Cls'+state.className:'';const sec=state.sectionName?'_Sec'+state.sectionName:'';
+  XLSX.writeFile(wb,`YellowSheet${cls}${sec}_ConsolidatedSummary.xlsx`);
+  toast('Consolidated Result XLSX downloaded!','success');
+}
+
+function downloadFullResultSummaryPDF(){
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const sr=state.studentResults,cfg=state.cfg,mc=state.masterCols;
+  doc.setFontSize(14);doc.text(`${state.schoolName||'School'}`,doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(`Consolidated Result  —  ${buildSchoolSubline()}`,doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=sr.map(r=>[r.roll,r.name,...mc.map(a=>r.subj6.includes(a)?(r.a100[a]||0):'—'),r.gt,r.pc+'%',r.pass?'PASS':'FAIL',r.rank||'—']);
+  const hdrs=['Roll','Name',...mc.map(a=>(cfg.subjects[a]||[a])[0]),'Total/600','%','Result','Rank'];
+  doc.autoTable({head:[hdrs],body,startY:28,styles:{fontSize:7,cellPadding:1.5},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_ConsolidatedSummary.pdf`);
+  toast('Consolidated Result PDF downloaded!','success');
+}
+
+function downloadFullPassPctXLSX(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Subject-Wise Pass % Summary — Consolidated');
+  const hdrs=['Sr. No.','Subject','Appeared','Pass','Failed','Average','Pass %'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  mc.forEach((abbr,idx)=>{
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const app=state.studentResults.filter(r=>r.subj6.includes(abbr));
+    const appeared=app.length;
+    const pass=app.filter(r=>(r.a100[abbr]||0)>=35).length;
+    const failed=appeared-pass;
+    const totalMarks=app.reduce((s,r)=>s+(r.a100[abbr]||0),0);
+    const avg=appeared>0?(totalMarks/appeared).toFixed(1):'—';
+    const pct=appeared>0?((pass/appeared)*100).toFixed(1):'0.0';
+    const row=idx+3;
+    SCn(row,0,idx+1);SC(row,1,sname);SCn(row,2,appeared);SCn(row,3,pass);SCn(row,4,failed);SC(row,5,String(avg));SC(row,6,pct+'%');
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:mc.length+2,c:6}});
+  ws['!cols']=[{wch:8},{wch:16},{wch:10},{wch:8},{wch:8},{wch:10},{wch:10}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Subject Pass %');
+  XLSX.writeFile(wb,`YellowSheet_SubjectPassPct.xlsx`);
+  toast('Subject Pass % XLSX downloaded!','success');
+}
+
+function downloadFullPassPctPDF(){
+  const{jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const cfg=state.cfg,mc=state.masterCols;
+  doc.setFontSize(14);doc.text('Subject-Wise Pass % Summary',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(`Consolidated Result  —  ${buildSchoolSubline()}`,doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=mc.map((abbr,idx)=>{
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const app=state.studentResults.filter(r=>r.subj6.includes(abbr));
+    const appeared=app.length;
+    const pass=app.filter(r=>(r.a100[abbr]||0)>=35).length;
+    const failed=appeared-pass;
+    const totalMarks=app.reduce((s,r)=>s+(r.a100[abbr]||0),0);
+    const avg=appeared>0?(totalMarks/appeared).toFixed(1):'—';
+    const pct=appeared>0?((pass/appeared)*100).toFixed(1):'0.0';
+    return[String(idx+1),sname,String(appeared),String(pass),String(failed),avg,pct+'%'];
+  });
+  doc.autoTable({head:[['Sr.','Subject','Appeared','Pass','Failed','Average','Pass %']],body,startY:28,styles:{fontSize:8,cellPadding:1.5},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_SubjectPassPct.pdf`);
+  toast('Subject Pass % PDF downloaded!','success');
+}
+
+function downloadFullToppersOverallXLSX(){
+  const passed=state.studentResults.filter(r=>r.pass);
+  if(!passed.length){toast('No passing students to export','info');return;}
+  const top3=buildToppers3(passed);
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Overall Top 3 — Consolidated Result');
+  const hdrs=['Rank','Roll No.','Student Name','Total /600','Percentage'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  let ri=0;
+  top3.forEach(({rank,group})=>{
+    group.forEach(sr=>{
+      const row=ri+3;
+      SCn(row,0,rank);SC(row,1,sr.roll);SC(row,2,sr.name);SCn(row,3,sr.gt);SC(row,4,sr.pc+'%');
+      ri++;
+    });
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:ri+2,c:4}});
+  ws['!cols']=[{wch:8},{wch:12},{wch:22},{wch:12},{wch:12}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Overall Toppers');
+  XLSX.writeFile(wb,`YellowSheet_OverallToppers.xlsx`);
+  toast('Overall Toppers XLSX downloaded!','success');
+}
+
+function downloadFullToppersOverallPDF(){
+  const{jsPDF}=window.jspdf;
+  const passed=state.studentResults.filter(r=>r.pass);
+  if(!passed.length){toast('No passing students to export','info');return;}
+  const top3=buildToppers3(passed);
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.text('Overall Top 3 — Consolidated Result',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(buildSchoolSubline(),doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=[];
+  top3.forEach(({rank,group,medal})=>{
+    group.forEach(sr=>body.push([medal,String(rank),sr.roll,sr.name,String(sr.gt)+' / 600',sr.pc+'%']));
+  });
+  doc.autoTable({head:[['Medal','Rank','Roll','Name','Total','%']],body,startY:28,styles:{fontSize:9,cellPadding:2},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_OverallToppers.pdf`);
+  toast('Overall Toppers PDF downloaded!','success');
+}
+
+function downloadFullSubjectToppersXLSX(){
+  const cfg=state.cfg,mc=state.masterCols;
+  const subData=buildSubjectToppers3(mc,cfg,state.studentResults,'100');
+  if(!subData.length){toast('No subject toppers data','info');return;}
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Subject-Wise Top 3 — Consolidated Result');
+  const hdrs=['Subject','Rank','Student','Marks /100'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  let ri=0;
+  subData.forEach(({abbr,sname,toppers})=>{
+    toppers.forEach(({rank,group})=>{
+      group.forEach(sr=>{
+        const row=ri+3;
+        SC(row,0,sname);SCn(row,1,rank);SC(row,2,sr.name+' ('+sr.roll+')');SCn(row,3,sr.a100[abbr]||0);
+        ri++;
+      });
+    });
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:ri+2,c:3}});
+  ws['!cols']=[{wch:16},{wch:8},{wch:26},{wch:12}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Subject Toppers');
+  XLSX.writeFile(wb,`YellowSheet_SubjectToppers.xlsx`);
+  toast('Subject Toppers XLSX downloaded!','success');
+}
+
+function downloadFullSubjectToppersPDF(){
+  const{jsPDF}=window.jspdf;
+  const cfg=state.cfg,mc=state.masterCols;
+  const subData=buildSubjectToppers3(mc,cfg,state.studentResults,'100');
+  if(!subData.length){toast('No subject toppers data','info');return;}
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.text('Subject-Wise Top 3 — Consolidated Result',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(buildSchoolSubline(),doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=[];
+  subData.forEach(({abbr,sname,toppers})=>{
+    toppers.forEach(({rank,group,medal})=>{
+      group.forEach(sr=>body.push([sname,medal,String(rank),sr.name+' ('+sr.roll+')',String(sr.a100[abbr]||0)+' / 100']));
+    });
+  });
+  doc.autoTable({head:[['Subject','Medal','Rank','Student','Marks']],body,startY:28,styles:{fontSize:8,cellPadding:1.5},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_SubjectToppers.pdf`);
+  toast('Subject Toppers PDF downloaded!','success');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// GRADE-WISE DOWNLOAD HELPERS — shared by full-year and single-exam
+// ═══════════════════════════════════════════════════════════════════════
+function downloadGradeWiseXLSX(){
+  const total=state.studentResults.length;
+  if(!total){toast('No data to export','info');return;}
+  const ws={};let maxRow=0;
+  const SC=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'s',v};if(r>maxRow)maxRow=r;};
+  const SCn=(r,c,v)=>{ws[XLSX.utils.encode_cell({r,c})]={t:'n',v};if(r>maxRow)maxRow=r;};
+  SC(0,0,'Class Wise / Grade Wise Result Summary');
+  const hdrs=['Sr. No.','Percentage','Class','Grade','Students','% of Total'];
+  hdrs.forEach((h,i)=>SC(2,i,h));
+  GRADE_BANDS.forEach((band,idx)=>{
+    const count=state.studentResults.filter(r=>r.pc>=band.min&&r.pc<=band.max).length;
+    const pct=total>0?((count/total)*100).toFixed(1):'0.0';
+    const row=idx+3;
+    SCn(row,0,idx+1);SC(row,1,band.label);SC(row,2,band.cls);SC(row,3,band.grade);SCn(row,4,count);SC(row,5,pct+'%');
+  });
+  ws['!ref']=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:GRADE_BANDS.length+2,c:5}});
+  ws['!cols']=[{wch:8},{wch:20},{wch:18},{wch:8},{wch:10},{wch:12}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Grade Wise');
+  XLSX.writeFile(wb,`YellowSheet_GradeWiseSummary.xlsx`);
+  toast('Grade Wise Summary XLSX downloaded!','success');
+}
+
+function downloadGradeWisePDF(){
+  const{jsPDF}=window.jspdf;
+  const total=state.studentResults.length;
+  if(!total){toast('No data to export','info');return;}
+  const doc=new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  doc.setFontSize(14);doc.text('Class Wise / Grade Wise Result Summary',doc.internal.pageSize.width/2,15,{align:'center'});
+  doc.setFontSize(10);doc.text(buildSchoolSubline(),doc.internal.pageSize.width/2,22,{align:'center'});
+  const body=GRADE_BANDS.map((band,idx)=>{
+    const count=state.studentResults.filter(r=>r.pc>=band.min&&r.pc<=band.max).length;
+    const pct=total>0?((count/total)*100).toFixed(1):'0.0';
+    return[String(idx+1),band.label,band.cls,band.grade,String(count),pct+'%'];
+  });
+  doc.autoTable({head:[['Sr.','Percentage','Class','Grade','Students','% of Total']],body,startY:28,styles:{fontSize:8,cellPadding:2},headStyles:{fillColor:[13,27,56]}});
+  doc.save(`YellowSheet_GradeWiseSummary.pdf`);
+  toast('Grade Wise Summary PDF downloaded!','success');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2099,10 +2644,16 @@ function buildToppersHtml(){
     ).join('')
   ).join('');
   return`<div class="card" style="border:2px solid var(--gold)">
-    <div class="card-title">🏆 Toppers Summary — Consolidated Result</div>
+    <div class="card-title">🏆 Toppers Summary — Consolidated Result
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadFullToppersOverallXLSX()">📥 XLSX</button>
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadFullToppersOverallPDF()">📄 PDF</button>
+    </div>
     <div class="card-sub">Based on final average marks /100 (all exams + internal).</div>
     <div style="margin-bottom:20px">
-      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3</div>
+      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadFullSubjectToppersXLSX()">📥 XLSX</button>
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadFullSubjectToppersPDF()">📄 PDF</button>
+      </div>
       <div class="table-wrap"><table>
         <thead><tr><th>Medal</th><th>Rank</th><th>Roll</th><th>Student Name</th><th>Total /600</th><th>Percentage</th></tr></thead>
         <tbody>${topRows}</tbody>
@@ -2145,10 +2696,16 @@ function buildToppersHtmlForExam(examLabel,ec,mode){
     ).join('')
   ).join('');
   return`<div class="card" style="border:2px solid var(--gold)">
-    <div class="card-title">🏆 Toppers — ${examLabel}</div>
+    <div class="card-title">🏆 Toppers — ${examLabel}
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadSingleToppersOverallXLSX()">📥 XLSX</button>
+      <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadSingleToppersOverallPDF()">📄 PDF</button>
+    </div>
     <div class="card-sub">Based on marks in this exam only.</div>
     <div style="margin-bottom:20px">
-      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3</div>
+      <div style="font-size:.90rem;font-weight:700;color:var(--navy);margin-bottom:10px">🎖️ Overall Top 3
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem" onclick="downloadSingleSubjectToppersXLSX()">📥 XLSX</button>
+        <button class="btn btn-outline" style="float:right;padding:4px 12px;font-size:.75rem;margin-right:6px" onclick="downloadSingleSubjectToppersPDF()">📄 PDF</button>
+      </div>
       <div class="table-wrap"><table>
         <thead><tr><th>Medal</th><th>Rank</th><th>Roll</th><th>Name</th><th>Total</th><th>%</th></tr></thead>
         <tbody>${topRows}</tbody>
@@ -2260,8 +2817,8 @@ function drawStudentCard(doc,cfg,mc,sr,s,ox,oy,SW,SH){
   let rowIdx=0;
   let colTot={ut1:0,ft:0,ut2:0,ann:0,intM:0,t200:0,avg:0};
   subjs.forEach(abbr=>{
-    const[sname,,,scode]=cfg.subjects[abbr]||[abbr];
-    const displayName=scode?`${sname} (${scode})`:sname;
+    const[sname]=cfg.subjects[abbr]||[abbr];
+    const displayName=sname;
     const ut1=cleanMarks(s.exams['FIRST UNIT TEST (25)']?.[abbr]);
     const ft=cleanMarks(s.exams['FIRST TERM EXAM (50)']?.[abbr]);
     const ut2=cleanMarks(s.exams['SECOND UNIT TEST (25)']?.[abbr]);
